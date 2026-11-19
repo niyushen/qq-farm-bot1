@@ -48,7 +48,8 @@ if (isWorkerProcess) {
 
     runtimeEngine.start({
         startAdminServer: true,
-        autoStartAccounts: false,
+        // 主进程启动时自动拉起全部账号（微信扫码号会先刷新 Code 再启动）
+        autoStartAccounts: true,
     }).catch((err: any) => {
         mainLogger.error('runtime bootstrap failed', { error: err && err.message ? err.message : String(err) });
     });
