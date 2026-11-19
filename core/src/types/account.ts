@@ -24,6 +24,16 @@ export interface Account {
   refreshtoken?: string;
   /** 微信扫码登录附加：访问令牌（配合 refreshtoken 使用） */
   accesstoken?: string;
+  /** 服务端凭据到期时间（毫秒），用于到期前 35–45 分钟保活 */
+  wxCredentialExpiresAt?: number;
+  /** 服务端凭据有效期（秒） */
+  wxCredentialExpiresIn?: number;
+  /** 观察到 refreshtoken 的时间（毫秒） */
+  wxRefreshTokenObservedAt?: number;
+  /** 最近一次凭据续期成功时间（毫秒） */
+  wxCredentialLastSuccessAt?: number;
+  /** 是否允许自动登录（false 时跳过自动启动与保活） */
+  autoLogin?: boolean;
   /** 是否已执行过"微信账号默认开启自动刷新"的一次性迁移 */
   wxDefaultsApplied?: boolean;
   createdAt: number;

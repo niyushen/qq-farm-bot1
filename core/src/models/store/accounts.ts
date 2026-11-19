@@ -89,6 +89,10 @@ function normalizeAccount(raw: any): Account {
     if (refreshtoken) account.refreshtoken = refreshtoken;
     const accesstoken = String(source.accesstoken || '').trim();
     if (accesstoken) account.accesstoken = accesstoken;
+    if (source.wxCredentialExpiresAt !== undefined) account.wxCredentialExpiresAt = Number(source.wxCredentialExpiresAt) || 0;
+    if (source.wxCredentialExpiresIn !== undefined) account.wxCredentialExpiresIn = Number(source.wxCredentialExpiresIn) || 0;
+    if (source.wxRefreshTokenObservedAt !== undefined) account.wxRefreshTokenObservedAt = Number(source.wxRefreshTokenObservedAt) || 0;
+    if (source.wxCredentialLastSuccessAt !== undefined) account.wxCredentialLastSuccessAt = Number(source.wxCredentialLastSuccessAt) || 0;
     if (source.wxDefaultsApplied !== undefined) account.wxDefaultsApplied = source.wxDefaultsApplied === true;
     return account;
 }
@@ -99,7 +103,7 @@ function addOrUpdateAccount(acc: Partial<Account> & { avatarUrl?: string }): Acc
     let touchedAccountId = '';
     const source: any = acc || {};
     const cleanAccount: any = {};
-    for (const key of ['id', 'name', 'code', 'platform', 'uin', 'qq', 'avatar', 'avatarUrl', 'nick', 'owner', 'gid', 'openId', 'loginType', 'wxid', 'loginBuffer', 'refreshtoken', 'accesstoken', 'wxDefaultsApplied']) {
+    for (const key of ['id', 'name', 'code', 'platform', 'uin', 'qq', 'avatar', 'avatarUrl', 'nick', 'owner', 'gid', 'openId', 'loginType', 'wxid', 'loginBuffer', 'refreshtoken', 'accesstoken', 'wxCredentialExpiresAt', 'wxCredentialExpiresIn', 'wxRefreshTokenObservedAt', 'wxCredentialLastSuccessAt', 'wxDefaultsApplied']) {
         if (source[key] !== undefined) cleanAccount[key] = source[key];
     }
     acc = cleanAccount;
@@ -128,6 +132,10 @@ function addOrUpdateAccount(acc: Partial<Account> & { avatarUrl?: string }): Acc
             ...(acc.loginBuffer ? { loginBuffer: String(acc.loginBuffer) } : {}),
             ...(acc.refreshtoken ? { refreshtoken: String(acc.refreshtoken) } : {}),
             ...(acc.accesstoken ? { accesstoken: String(acc.accesstoken) } : {}),
+            ...(acc.wxCredentialExpiresAt !== undefined ? { wxCredentialExpiresAt: Number(acc.wxCredentialExpiresAt) || 0 } : {}),
+            ...(acc.wxCredentialExpiresIn !== undefined ? { wxCredentialExpiresIn: Number(acc.wxCredentialExpiresIn) || 0 } : {}),
+            ...(acc.wxRefreshTokenObservedAt !== undefined ? { wxRefreshTokenObservedAt: Number(acc.wxRefreshTokenObservedAt) || 0 } : {}),
+            ...(acc.wxCredentialLastSuccessAt !== undefined ? { wxCredentialLastSuccessAt: Number(acc.wxCredentialLastSuccessAt) || 0 } : {}),
             ...(acc.wxDefaultsApplied !== undefined ? { wxDefaultsApplied: acc.wxDefaultsApplied === true } : {}),
             createdAt: Date.now(),
             updatedAt: Date.now(),

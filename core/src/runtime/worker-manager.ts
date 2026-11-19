@@ -35,6 +35,9 @@ interface WorkerManagerOptions {
     refreshAccountCode?: (accountId: string, reason?: string) => Promise<boolean>;
     /** 微信定时刷新（auto-code-refresh）：被踢/断线后按阶梯延迟自动重登 */
     scheduleAutoRelogin?: (accountId: string, reason?: string) => boolean;
+    /** 微信凭据保活：每次启动/重启后重新武装；停止时清理 */
+    scheduleAccountRefresh?: (accountId: string) => void;
+    stopAccountRefresh?: (accountId: string) => void;
     /** 外部顶号记录：短时间多次被顶后停止自动重登 */
     shouldStopAutoRelogin?: (accountId: string, reason: unknown) => boolean;
     onStatusSync?: (accountId: string, status: any, accountName?: string) => void;
@@ -62,6 +65,8 @@ function createWorkerManager(options: WorkerManagerOptions) {
         deleteAccount,
         refreshAccountCode,
         scheduleAutoRelogin,
+        scheduleAccountRefresh,
+        stopAccountRefresh,
         shouldStopAutoRelogin,
         onStatusSync,
         onWorkerLog,
@@ -166,6 +171,10 @@ function createWorkerManager(options: WorkerManagerOptions) {
             log('系统', `账号 ${account.name} 子进程启动失败: ${err && err.message ? err.message : err}`, { accountId: String(account.id), accountName: account.name });
         });
 
+        // 每次启动/重启后重新武装微信凭据保活：stopWorker 会清掉旧任务，
+        // 必须由新 Worker 生命周期重建，避免重启一次后保活永久消失。
+        if (typeof scheduleAccountRefresh === 'function') scheduleAccountRefresh(account.id);
+
         child.on('exit', (code: number, signal: string) => {
             const current = workers[account.id];
             if (!current || current.process !== child) return;
@@ -202,6 +211,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
 
         const proc = worker.process;
         worker.stopping = true;
+        if (typeof stopAccountRefresh === 'function') stopAccountRefresh(accountId);
         worker.process.send({ type: 'stop' });
         managerScheduler.setTimeoutTask(`force_kill_${accountId}`, 1000, () => {
             const current = workers[accountId];

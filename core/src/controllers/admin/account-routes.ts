@@ -9,6 +9,7 @@ export {};
 const store = require('../../models/store');
 const { addOrUpdateAccount, deleteAccount } = store;
 const { findAccountByRef } = require('../../services/account-resolver');
+const wxCredentialGuard = require('../../services/wx-credential-guard');
 const { updateRuntimeConfig, getRuntimeConfig, getDefaultSystemConfig, getDevicePresets, getTimeZoneOptions } = require('../../config/config');
 
 const {
@@ -159,6 +160,12 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             }
 
             const data = addOrUpdateAccount(payload);
+            // 只有真正保存了新的 loginBuffer 才算接受了一次新扫码；token 轮换
+            // 或改备注不会带这个字段，因此不会错误推进扫码代次。
+            if (payload.loginBuffer) {
+                const savedId = isUpdate ? String(payload.id) : String((data.accounts.at(-1) || {}).id || '');
+                if (savedId) wxCredentialGuard.noteAcceptedScan(savedId);
+            }
             if (ctx.provider.addAccountLog) {
                 const accountId = isUpdate ? String(payload.id) : String((data.accounts.at(-1) || {}).id || '');
                 const accountName = payload.name || '';
