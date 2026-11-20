@@ -46,7 +46,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     });
     const {
         workers,
-        globalLogs: GLOBAL_LOGS,
+        logPools: LOG_POOLS,
+        appendLog: APPEND_LOG,
         accountLogs: ACCOUNT_LOGS,
         runtimeEvents,
         nextConfigRevision,
@@ -106,7 +107,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         mainEntryPath,
         workerScriptPath,
         workers,
-        globalLogs: GLOBAL_LOGS,
+        appendLog: APPEND_LOG,
         log,
         addAccountLog,
         normalizeStatusForPanel,
@@ -146,7 +147,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     autoReloginHooks.refreshAccountCode = autoCodeRefresh.refreshAccountCode;
     const dataProvider = createDataProvider({
         workers,
-        globalLogs: GLOBAL_LOGS,
+        logPools: LOG_POOLS,
         accountLogs: ACCOUNT_LOGS,
         store,
         getAccounts: store.getAccounts,

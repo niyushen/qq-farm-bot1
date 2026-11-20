@@ -5,6 +5,10 @@ import { io } from 'socket.io-client'
 import { computed, ref } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
 import { useAccountStore } from '@/stores/account'
+import { LOG_SPACE_RANCH, resolveEntrySpace } from '@/utils/log-space'
+
+/** 每个空间在前端保留的日志条数（对应服务端每空间 100 条的可见配额） */
+const LOG_BUFFER_LIMIT = 100
 
 // Define interfaces for better type checking
 interface DailyGift {
@@ -41,7 +45,10 @@ interface DailyGiftsResponse {
 export const useStatusStore = defineStore('status', () => {
   const accountStore = useAccountStore()
   const status = ref<any>(null)
-  const logs = ref<any[]>([])
+  /** 农场空间日志（全部非牧场日志） */
+  const farmLogs = ref<any[]>([])
+  /** 牧场空间日志 */
+  const ranchLogs = ref<any[]>([])
   const dailyGifts = ref<DailyGiftsResponse | null>(null)
   const dailyGiftsLoading = ref(false)
   const dailyGiftsError = ref('')
@@ -81,9 +88,10 @@ export const useStatusStore = defineStore('status', () => {
 
   function pushRealtimeLog(entry: any) {
     const next = normalizeLogEntry(entry)
-    logs.value.push(next)
-    if (logs.value.length > 300)
-      logs.value = logs.value.slice(-300)
+    const target = resolveEntrySpace(next) === LOG_SPACE_RANCH ? ranchLogs : farmLogs
+    target.value.push(next)
+    if (target.value.length > LOG_BUFFER_LIMIT)
+      target.value = target.value.slice(-LOG_BUFFER_LIMIT)
   }
 
   function handleRealtimeStatus(payload: any) {
@@ -107,8 +115,11 @@ export const useStatusStore = defineStore('status', () => {
 
   function handleRealtimeLogsSnapshot(payload: any) {
     const body = (payload && typeof payload === 'object') ? payload : {}
-    const list = Array.isArray(body.logs) ? body.logs : []
-    logs.value = list.map((item: any) => normalizeLogEntry(item))
+    const list = Array.isArray(body.logs) ? body.logs.map((item: any) => normalizeLogEntry(item)) : []
+    if (body.space === LOG_SPACE_RANCH)
+      ranchLogs.value = list
+    else
+      farmLogs.value = list
   }
 
   function ensureRealtimeSocket() {
@@ -236,7 +247,11 @@ export const useStatusStore = defineStore('status', () => {
     try {
       const { data } = await api.get('/api/logs', { headers, params })
       if (data.ok) {
-        logs.value = data.data
+        const list = Array.isArray(data.data) ? data.data.map((item: any) => normalizeLogEntry(item)) : []
+        if (params.space === LOG_SPACE_RANCH)
+          ranchLogs.value = list
+        else
+          farmLogs.value = list
         error.value = ''
       }
     }
@@ -300,7 +315,8 @@ export const useStatusStore = defineStore('status', () => {
 
   return {
     status,
-    logs,
+    farmLogs,
+    ranchLogs,
     dailyGifts,
     dailyGiftsLoading,
     dailyGiftsError,

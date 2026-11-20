@@ -8,7 +8,7 @@ function harness({ accounts, refreshResult = true, refreshThrows = false } = {})
 
     const provider = createDataProvider({
         workers: {},
-        globalLogs: [],
+        logPools: { farm: [], ranch: [] },
         accountLogs: [],
         store: {},
         getAccounts: () => ({ accounts }),

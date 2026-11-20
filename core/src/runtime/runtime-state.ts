@@ -3,7 +3,7 @@ const { EventEmitter } = require('node:events');
 const { getRuntimeConfig } = require('../config/config');
 const { createModuleLogger } = require('../services/logger');
 const { getTodayKey, loadPersistedStats } = require('../services/stats');
-const { formatSystemDateTime24 } = require('../utils/utils');
+const { formatSystemDateTime24, resolveLogSpace } = require('../utils/utils');
 
 interface RuntimeStateOptions {
     store: any;
@@ -16,6 +16,8 @@ interface LogEntry {
     msg: string;
     meta: Record<string, any>;
     ts: number;
+    /** 所属空间：ranch=牧场 / farm=农场（其余全部农场），由 appendLog 打标 */
+    space?: string;
     _searchText?: string;
     [key: string]: any;
 }
@@ -39,6 +41,9 @@ interface LogFilters {
     timeTo?: string;
 }
 
+/** 每个空间日志池的独立上限（条）；牧场池与农场池各自计数、各自截断 */
+const LOG_POOL_LIMIT = 2000;
+
 function createRuntimeState(options: RuntimeStateOptions) {
     const {
         store,
@@ -46,7 +51,12 @@ function createRuntimeState(options: RuntimeStateOptions) {
     } = options;
 
     const workers: Record<string, any> = {};
-    const globalLogs: LogEntry[] = [];
+    /**
+     * 运行日志池：按空间拆分。
+     * farm = 全部非牧场日志（农场/好友/仓库/任务/系统），ranch = 牧场日志。
+     * 两个数组物理独立；写入只能经 appendLog。
+     */
+    const logPools: { farm: LogEntry[]; ranch: LogEntry[] } = { farm: [], ranch: [] };
     const accountLogs: AccountLogEntry[] = [];
     const runtimeEvents = new EventEmitter();
     let configRevision = Date.now();
@@ -70,6 +80,21 @@ function createRuntimeState(options: RuntimeStateOptions) {
         };
     }
 
+    /**
+     * 唯一的运行日志写入口：
+     * 1) 判定空间并写入 entry.space（前端据此分流，WS payload 天然携带）
+     * 2) 推入对应空间的池
+     * 3) 该池独立按 LOG_POOL_LIMIT 截断
+     */
+    function appendLog(entry: LogEntry): LogEntry {
+        const space = resolveLogSpace(entry);
+        entry.space = space;
+        const pool = logPools[space] || logPools.farm;
+        pool.push(entry);
+        if (pool.length > LOG_POOL_LIMIT) pool.shift();
+        return entry;
+    }
+
     function log(tag: string, msg: string, extra: Record<string, any> = {}): void {
         const time = formatSystemDateTime24();
         const level = tag === '错误' ? 'error' : 'info';
@@ -84,8 +109,7 @@ function createRuntimeState(options: RuntimeStateOptions) {
             ...extra,
         };
         entry._searchText = `${entry.msg || ''} ${entry.tag || ''} ${JSON.stringify(entry.meta || {})}`.toLowerCase();
-        globalLogs.push(entry);
-        if (globalLogs.length > 1000) globalLogs.shift();
+        appendLog(entry);
         runtimeEvents.emit('log', entry);
     }
 
@@ -226,7 +250,8 @@ function createRuntimeState(options: RuntimeStateOptions) {
 
     return {
         workers,
-        globalLogs,
+        logPools,
+        appendLog,
         accountLogs,
         runtimeEvents,
         nextConfigRevision,
@@ -241,4 +266,5 @@ function createRuntimeState(options: RuntimeStateOptions) {
 
 module.exports = {
     createRuntimeState,
+    LOG_POOL_LIMIT,
 };

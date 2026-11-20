@@ -21,7 +21,8 @@ interface WorkerManagerOptions {
     mainEntryPath: string;
     workerScriptPath: string;
     workers: Record<string, any>;
-    globalLogs: any[];
+    /** 运行日志统一写入口（由 runtime-state 提供，内部完成空间分流与池截断） */
+    appendLog: (entry: any) => any;
     log: (tag: string, msg: string, extra?: any) => void;
     addAccountLog: (action: string, msg: string, accountId?: string, accountName?: string, extra?: any) => void;
     normalizeStatusForPanel: (data: any, accountId: string, accountName: string) => any;
@@ -53,7 +54,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
         mainEntryPath,
         workerScriptPath,
         workers,
-        globalLogs,
+        appendLog,
         log,
         addAccountLog,
         normalizeStatusForPanel,
@@ -135,7 +136,6 @@ function createWorkerManager(options: WorkerManagerOptions) {
         workers[account.id] = {
             process: child,
             status: null,
-            logs: [],
             requests: new Map(),
             reqId: 1,
             name: account.name,
@@ -357,12 +357,9 @@ function createWorkerManager(options: WorkerManagerOptions) {
                 meta: msg.data && msg.data.meta ? msg.data.meta : {},
             };
             logEntry._searchText = `${logEntry.msg || ''} ${logEntry.tag || ''} ${JSON.stringify(logEntry.meta || {})}`.toLowerCase();
-            worker.logs.push(logEntry);
-            if (worker.logs.length > 1000) worker.logs.shift();
-            globalLogs.push(logEntry);
-            if (globalLogs.length > 1000) globalLogs.shift();
+            const stamped = appendLog(logEntry);
             if (typeof onWorkerLog === 'function') {
-                onWorkerLog(logEntry, accountId, worker.name);
+                onWorkerLog(stamped, accountId, worker.name);
             }
         } else if (msg.type === 'error') {
             const workerError = errorFromWorkerPayload(msg.error);

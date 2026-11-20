@@ -381,6 +381,7 @@ pnpm -C core exec tsx ../tools/audit-capture-compatibility.js <capture-dir>
 
 - [工具脚本](docs/tools.md)
 - [网络并发模型](docs/network-concurrency.md)
+- [日志空间拆分与配额](docs/log-space.md)
 - [TSDK Node.js 运行约定](docs/tsdk-runtime.md)
 - [配置存储、迁移与缓存](docs/config-storage.md)
 - [2026-10-22 游戏版本与资源对齐](docs/game-update-20261022.md)

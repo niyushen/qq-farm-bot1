@@ -23,7 +23,7 @@ function harness({ refreshOk = false } = {}) {
         mainEntryPath: 'main.js',
         workerScriptPath: 'worker.js',
         workers,
-        globalLogs: [],
+        appendLog() {},
         log() {},
         addAccountLog() {},
         normalizeStatusForPanel: d => d,

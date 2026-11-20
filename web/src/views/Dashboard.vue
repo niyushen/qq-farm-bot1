@@ -20,7 +20,7 @@ const toastStore = useToastStore()
 const {
   status,
   diamondBalance,
-  logs: statusLogs,
+  farmLogs: statusLogs,
   realtimeConnected,
 } = storeToRefs(statusStore)
 const { currentAccountId, currentAccount } = storeToRefs(accountStore)
@@ -33,7 +33,7 @@ const clearingLogs = ref(false)
 
 const allLogs = computed(() => {
   return [...(statusLogs.value || [])]
-    .slice(-200)
+    .slice(-100)
     .sort((a: any, b: any) => a.ts - b.ts)
 })
 
@@ -412,6 +412,7 @@ async function refresh(forceReloadLogs = false) {
 
     if (forceReloadLogs || hasActiveLogFilter.value || !realtimeConnected.value) {
       await statusStore.fetchLogs(currentAccountId.value, {
+        space: 'farm',
         module: filter.module || undefined,
         event: filter.event || undefined,
         keyword: filter.keyword || undefined,

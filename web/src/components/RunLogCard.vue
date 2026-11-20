@@ -9,10 +9,11 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
+import { isRanchLog } from '@/utils/log-space'
 
 const statusStore = useStatusStore()
 const toastStore = useToastStore()
-const { logs: statusLogs, realtimeConnected, realtimeLogsEnabled } = storeToRefs(statusStore)
+const { ranchLogs: statusLogs, realtimeConnected, realtimeLogsEnabled } = storeToRefs(statusStore)
 const { currentAccountId } = storeToRefs(useAccountStore())
 const logContainer = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
@@ -21,7 +22,7 @@ const filter = reactive({ module: '', event: '', keyword: '', isWarn: '' })
 
 const allLogs = computed(() => {
   return [...(statusLogs.value || [])]
-    .slice(-200)
+    .slice(-100)
     .sort((a: any, b: any) => a.ts - b.ts)
 })
 
@@ -61,41 +62,14 @@ const hasActiveLogFilter = computed(() =>
   !!(filter.module || filter.event || filter.keyword || filter.isWarn),
 )
 
+// 牧场日志池只含 module=ranch 的条目，其他模块在此筛选器下恒为空
 const modules = [
   { label: '所有模块', value: '' },
-  { label: '农场', value: 'farm' },
   { label: '牧场', value: 'ranch' },
-  { label: '好友', value: 'friend' },
-  { label: '仓库', value: 'warehouse' },
-  { label: '任务', value: 'task' },
-  { label: '系统', value: 'system' },
 ]
 
 const events = [
   { label: '所有事件', value: '' },
-  { label: '农场巡查', value: 'farm_cycle' },
-  { label: '收获作物', value: 'harvest_crop' },
-  { label: '清理枯株', value: 'remove_plant' },
-  { label: '种植种子', value: 'plant_seed' },
-  { label: '施加化肥', value: 'fertilize' },
-  { label: '土地推送', value: 'lands_notify' },
-  { label: '选择种子', value: 'seed_pick' },
-  { label: '购买种子', value: 'seed_buy' },
-  { label: '购买化肥', value: 'fertilizer_buy' },
-  { label: '开启礼包', value: 'fertilizer_gift_open' },
-  { label: '获取任务', value: 'task_scan' },
-  { label: '完成任务', value: 'task_claim' },
-  { label: '免费礼包', value: 'mall_free_gifts' },
-  { label: '分享奖励', value: 'daily_share' },
-  { label: '会员礼包', value: 'vip_daily_gift' },
-  { label: '月卡礼包', value: 'month_card_gift' },
-  { label: '图鉴奖励', value: 'illustrated_rewards' },
-  { label: '邮箱领取', value: 'email_rewards' },
-  { label: '出售成功', value: 'sell_success' },
-  { label: '土地升级', value: 'upgrade_land' },
-  { label: '土地解锁', value: 'unlock_land' },
-  { label: '好友巡查', value: 'friend_cycle' },
-  { label: '访问好友', value: 'visit_friend' },
   { label: '牧场巡查', value: 'ranch_automation' },
   { label: '购买牧场商品', value: 'ranch_buy' },
   { label: '放养幼崽', value: 'ranch_place' },
@@ -136,13 +110,7 @@ function getEventLabel(event?: string) {
   return eventLabelMap[key] || (/[\u3400-\u9FFF]/u.test(key) ? key : '')
 }
 
-function isRanchLog(log: any) {
-  return log.meta?.module === 'ranch' || String(log.meta?.event || '').startsWith('ranch_') || log.tag === '牧场'
-}
-
 function getModuleLabel(log: any) {
-  if (isRanchLog(log))
-    return '牧场'
   return modules.find(module => module.value && module.value === log.meta?.module)?.label || log.tag
 }
 
@@ -166,6 +134,7 @@ async function loadLogs(force = false) {
     return
   if (force || hasActiveLogFilter.value || !realtimeConnected.value) {
     await statusStore.fetchLogs(currentAccountId.value, {
+      space: 'ranch',
       module: filter.module || undefined,
       event: filter.event || undefined,
       keyword: filter.keyword || undefined,

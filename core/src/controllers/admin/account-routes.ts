@@ -263,6 +263,22 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
     });
 
     // API: 日志
+    /**
+     * 三处日志查询分支共用同一份查询条件构造，避免新增字段时漏改。
+     * space：ranch/farm 指定空间；不传则两池合并。
+     */
+    const buildLogOptions = (req: Request) => ({
+        limit: Number.parseInt(req.query.limit as string) || 100,
+        tag: req.query.tag || '',
+        module: req.query.module || '',
+        event: req.query.event || '',
+        keyword: req.query.keyword || '',
+        isWarn: req.query.isWarn,
+        timeFrom: req.query.timeFrom || '',
+        timeTo: req.query.timeTo || '',
+        space: req.query.space || '',
+    });
+
     app.get('/api/logs', (req: Request, res: Response) => {
         const queryAccountIdRaw = (req.query.accountId || '').toString().trim();
         const logUser = (req as AuthenticatedRequest).currentUser || null;
@@ -272,37 +288,20 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const accounts = getAccountList(ctx, logUser);
             const accountIds = accounts.map((a: any) => String(a.id || '')).filter(Boolean);
             const allLogs: any[] = [];
-            const options = {
-                limit: Number.parseInt(req.query.limit as string) || 100,
-                tag: req.query.tag || '',
-                module: req.query.module || '',
-                event: req.query.event || '',
-                keyword: req.query.keyword || '',
-                isWarn: req.query.isWarn,
-                timeFrom: req.query.timeFrom || '',
-                timeTo: req.query.timeTo || '',
-            };
+            const options = buildLogOptions(req);
             for (const accId of accountIds) {
                 const logs = ctx.provider.getLogs(accId, options);
                 if (Array.isArray(logs)) allLogs.push(...logs);
             }
-            allLogs.sort((a: any, b: any) => (b.time || 0) - (a.time || 0));
+            // ts 是数值时间戳；time 是字符串，直接相减得 NaN 会让排序失效
+            allLogs.sort((a: any, b: any) => (Number(b && b.ts) || 0) - (Number(a && a.ts) || 0));
             return res.json({ ok: true, data: allLogs.slice(0, options.limit) });
         }
         // 如果没有指定账号ID，获取所有账号的日志
         if (!id) {
             const accountIds = getAccountIds(ctx, (req as AuthenticatedRequest).currentUser || null);
             const allLogs: any[] = [];
-            const options = {
-                limit: Number.parseInt(req.query.limit as string) || 100,
-                tag: req.query.tag || '',
-                module: req.query.module || '',
-                event: req.query.event || '',
-                keyword: req.query.keyword || '',
-                isWarn: req.query.isWarn,
-                timeFrom: req.query.timeFrom || '',
-                timeTo: req.query.timeTo || '',
-            };
+            const options = buildLogOptions(req);
 
             for (const accId of accountIds) {
                 const logs = ctx.provider.getLogs(accId, options);
@@ -312,23 +311,14 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             }
 
             // 按时间排序并限制数量
-            allLogs.sort((a: any, b: any) => (b.time || 0) - (a.time || 0));
+            allLogs.sort((a: any, b: any) => (Number(b && b.ts) || 0) - (Number(a && a.ts) || 0));
             const limitedLogs = allLogs.slice(0, options.limit);
 
             return res.json({ ok: true, data: limitedLogs });
         }
 
         // 指定了账号ID且通过权限检查，返回该账号的日志
-        const options = {
-            limit: Number.parseInt(req.query.limit as string) || 100,
-            tag: req.query.tag || '',
-            module: req.query.module || '',
-            event: req.query.event || '',
-            keyword: req.query.keyword || '',
-            isWarn: req.query.isWarn,
-            timeFrom: req.query.timeFrom || '',
-            timeTo: req.query.timeTo || '',
-        };
+        const options = buildLogOptions(req);
         const list = ctx.provider.getLogs(id, options);
         res.json({ ok: true, data: list });
     });
@@ -339,20 +329,32 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
 
         try {
-            const data = ctx.provider.clearLogs(id);
+            const data = ctx.provider.clearLogs(id, { space: (req.query.space || '').toString() });
 
             if (ctx.io && ctx.provider && typeof ctx.provider.getLogs === 'function') {
-                const accountLogs = ctx.provider.getLogs(id, { limit: 100 });
-                ctx.io.to(`account:${id}`).emit('logs:snapshot', {
-                    accountId: id,
-                    logs: Array.isArray(accountLogs) ? accountLogs : [],
-                });
+                // 快照按空间分推（前端按 space 分别替换对应缓冲）
+                for (const space of ['ranch', 'farm']) {
+                    const accountLogs = ctx.provider.getLogs(id, { limit: 100, space });
+                    ctx.io.to(`account:${id}`).emit('logs:snapshot', {
+                        accountId: id,
+                        space,
+                        logs: Array.isArray(accountLogs) ? accountLogs : [],
+                    });
 
-                const allLogs = ctx.provider.getLogs('', { limit: 100 });
-                ctx.io.to('account:all').emit('logs:snapshot', {
-                    accountId: 'all',
-                    logs: Array.isArray(allLogs) ? allLogs : [],
-                });
+                    let allLogs = ctx.provider.getLogs('', { limit: 100, space });
+                    if (!Array.isArray(allLogs)) allLogs = [];
+                    // 用户隔离：聚合视图（account:all）按归属过滤，避免普通用户收到他人账号日志
+                    const currentUser = (req as AuthenticatedRequest).currentUser || null;
+                    if (currentUser) {
+                        const ownedIds = new Set(getAccountList(ctx, currentUser).map((a: any) => String(a.id || '')).filter(Boolean));
+                        allLogs = allLogs.filter((entry: any) => ownedIds.has(String(entry?.accountId || '')));
+                    }
+                    ctx.io.to('account:all').emit('logs:snapshot', {
+                        accountId: 'all',
+                        space,
+                        logs: allLogs,
+                    });
+                }
             }
 
             res.json({ ok: true, data });
@@ -578,7 +580,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const ui = store.getUI();
             // 下线提醒按登录用户隔离：返回当前用户自己的配置（未配置时返回默认值）
             const settingsUser = (req as AuthenticatedRequest).currentUser || null;
-            let offlineReminder = store.getOfflineReminder
+            const offlineReminder = store.getOfflineReminder
                 ? store.getOfflineReminder(settingsUser ? settingsUser.username : '')
                 : { channel: 'webhook', endpoint: '', token: '', secret: '', title: '账号下线提醒', msg: '账号下线', offlineDeleteSec: 0 };
             // 管理员是否配置好全局邮件服务（用户在通知设置里可勾选复用，免填 SMTP）

@@ -155,6 +155,30 @@ function inferModuleFromTag(tag: string): string {
     return tagMap[t] || 'system';
 }
 
+// ============ 日志空间（牧场 / 农场） ============
+const LOG_SPACE_RANCH = 'ranch';
+const LOG_SPACE_FARM = 'farm';
+
+/** 归一化外部传入的空间标识；空串 / 非法值表示「不限定空间」（两池合并） */
+function normalizeLogSpace(value: unknown): string {
+    const raw = String(value === undefined || value === null ? '' : value).trim().toLowerCase();
+    if (raw === LOG_SPACE_RANCH || raw === LOG_SPACE_FARM) return raw;
+    return '';
+}
+
+/**
+ * 判定日志条目所属空间。
+ * 与前端 web/src/utils/log-space.ts 的 resolveEntrySpace 保持完全一致的判定顺序：
+ * module=ranch → event 以 ranch_ 开头 → tag=牧场，三者命中其一即为牧场，其余全部归农场。
+ */
+function resolveLogSpace(entry: any): string {
+    const meta = (entry && entry.meta) || {};
+    if (String(meta.module || '') === LOG_SPACE_RANCH) return LOG_SPACE_RANCH;
+    if (String(meta.event || '').startsWith('ranch_')) return LOG_SPACE_RANCH;
+    if (String((entry && entry.tag) || '') === '牧场') return LOG_SPACE_RANCH;
+    return LOG_SPACE_FARM;
+}
+
 interface NormalizedLogArgs {
     tag: string;
     msg: string;
@@ -218,4 +242,5 @@ module.exports = {
     getServerTimeSec, syncServerTime, getSystemDateKey, getSystemClockMinutes,
     formatDateKeyInTimeZone, formatSystemDateTime24, toTimeSec,
     log, logWarn, sleep, randomDelay,
+    LOG_SPACE_RANCH, LOG_SPACE_FARM, normalizeLogSpace, resolveLogSpace,
 };

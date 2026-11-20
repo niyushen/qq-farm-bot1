@@ -1,10 +1,12 @@
 export {};
 const { findAccountByRef, normalizeAccountRef, resolveAccountId: resolveAccountIdByList } = require('../services/account-resolver');
 const { getSchedulerRegistrySnapshot } = require('../services/scheduler');
+const { normalizeLogSpace } = require('../utils/utils');
 
 interface DataProviderOptions {
     workers: Record<string, any>;
-    globalLogs: any[];
+    /** 按空间拆分的运行日志池：farm=全部非牧场日志，ranch=牧场日志 */
+    logPools: { farm: any[]; ranch: any[] };
     accountLogs: any[];
     store: any;
     getAccounts: () => any;
@@ -26,10 +28,20 @@ interface DataProviderOptions {
     refreshAccountCode?: (accountId: string, reason?: string) => Promise<boolean>;
 }
 
+/**
+ * 合并两个空间的日志池并按 ts 升序。
+ * 两个池各自按写入顺序（即时间序）排列，直接拼接后并非全局时间序，
+ * 不排序的话 slice(-max) 会截到 ranch 池的尾巴而非全局最新。
+ */
+function mergeLogPools(pools: { farm: any[]; ranch: any[] }): any[] {
+    return [...(pools.farm || []), ...(pools.ranch || [])]
+        .sort((a, b) => (Number(a && a.ts) || 0) - (Number(b && b.ts) || 0));
+}
+
 function createDataProvider(options: DataProviderOptions) {
     const {
         workers,
-        globalLogs,
+        logPools,
         accountLogs,
         store,
         getAccounts,
@@ -84,39 +96,52 @@ function createDataProvider(options: DataProviderOptions) {
         getLogs: (accountRef: string, optionsOrLimit?: any) => {
             const opts = (typeof optionsOrLimit === 'object' && optionsOrLimit) ? optionsOrLimit : { limit: optionsOrLimit };
             const max = Math.max(1, Number(opts.limit) || 100);
+            // space：ranch/farm 精确取池；未指定或非法 → 两池合并（等价旧的全量语义，向后兼容）
+            const space = normalizeLogSpace(opts.space);
             const rawRef = normalizeAccountRef(accountRef);
             const accountId = resolveAccountRefId(accountRef);
+            const source = space ? (logPools[space] || []) : mergeLogPools(logPools);
             if (!rawRef || rawRef === 'all') {
-                return filterLogs(globalLogs, opts).slice(-max);
+                return filterLogs(source, opts).slice(-max);
             }
             if (!accountId) return [];
             const accId = String(accountId || '');
-            return filterLogs(globalLogs.filter(l => String(l.accountId || '') === accId), opts).slice(-max);
+            return filterLogs(source.filter(l => String(l.accountId || '') === accId), opts).slice(-max);
         },
 
         getAccountLogs: (limit: number) => accountLogs.slice(-limit).reverse(),
         addAccountLog: (action: string, msg: string, accountId?: string, accountName?: string, extra?: any) => addAccountLog(action, msg, accountId, accountName, extra),
 
-        clearLogs: (accountRef: string) => {
+        clearLogs: (accountRef: string, optionsOrSpace?: any) => {
+            // 可选 space 只清单个空间；不传则清该账号在两个空间的全部运行日志
+            // 入参支持两种形态：字符串 'ranch' / 'farm'，或 options 对象 { space }
+            const space = normalizeLogSpace(
+                (optionsOrSpace && typeof optionsOrSpace === 'object')
+                    ? optionsOrSpace.space
+                    : optionsOrSpace,
+            );
             const rawRef = normalizeAccountRef(accountRef);
             const accountId = resolveAccountRefId(accountRef);
+            const targets = space ? [logPools[space] || []] : Object.values(logPools);
 
             if (!rawRef || rawRef === 'all') {
-                globalLogs.length = 0;
+                for (const pool of targets) pool.length = 0;
                 return { cleared: 'all' };
             }
 
             if (!accountId) return { cleared: 0 };
 
             const accId = String(accountId || '');
-            const before = globalLogs.length;
-            for (let i = globalLogs.length - 1; i >= 0; i--) {
-                if (String(globalLogs[i].accountId || '') === accId) {
-                    globalLogs.splice(i, 1);
+            let cleared = 0;
+            for (const pool of targets) {
+                for (let i = pool.length - 1; i >= 0; i--) {
+                    if (String(pool[i].accountId || '') === accId) {
+                        pool.splice(i, 1);
+                        cleared++;
+                    }
                 }
             }
-            const after = globalLogs.length;
-            return { cleared: before - after, accountId };
+            return { cleared, accountId };
         },
 
         getLands: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getLands', true),
