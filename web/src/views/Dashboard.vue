@@ -341,6 +341,52 @@ function getOpIcon(key: string | number) {
 }
 
 const platformLabel = computed(() => getPlatformLabel(accountStore.currentAccount?.platform))
+
+// —— 一键重连（仅微信账号）——
+// 微信账号的登录凭据可再生：后端能用 loginBuffer/refreshtoken 换新 Code 并重启 Worker，
+// 不需要用户重新扫码或手填 Code。失效原因分两类，界面必须区分：
+//   - 授权被明确撤销（need_rescan）：只能重新扫码，直接引导到扫码弹窗
+//   - 网络抖动/临时失败：稍后重试即可，留在原地让用户再点一次
+const isWxAccount = computed(() => String(accountStore.currentAccount?.platform || '') === 'wx')
+const reconnecting = ref(false)
+
+async function handleReconnect() {
+  const accountId = currentAccountId.value
+  if (!accountId || reconnecting.value)
+    return
+
+  reconnecting.value = true
+  try {
+    const { data } = await api.post(`/api/accounts/${accountId}/reconnect`, {}, {
+      timeout: 120000,
+      skipErrorToast: true,
+    } as any)
+
+    if (data?.ok) {
+      toastStore.success('重连成功，正在恢复挂机')
+      // 重连会重启 Worker，等待状态回推后再刷新，避免读到旧的离线状态
+      await refresh(true)
+      return
+    }
+
+    const reason = String(data?.reason || '')
+    const message = getApiErrorMessage(data, '重连失败，请稍后重试')
+    if (reason === 'need_rescan' || reason === 'no_credential') {
+      toastStore.warning(message)
+      // 授权已失效：交给侧边栏统一弹出扫码登录弹窗，避免两处弹窗互相遮挡
+      accountStore.requestRelogin(accountId)
+      return
+    }
+    toastStore.error(message)
+  }
+  catch (e: any) {
+    toastStore.error(getApiErrorMessage(e, '重连失败，请稍后重试'))
+  }
+  finally {
+    reconnecting.value = false
+  }
+}
+
 const accountAvatar = computed(() => {
   const account = accountStore.currentAccount
   if (!account)
@@ -553,6 +599,22 @@ useIntervalFn(updateCountdowns, 1000)
             <div class="ov-account__name-row">
               <strong class="ov-account__name" :title="displayName">{{ displayName }}</strong>
               <span class="ov-level">Lv.{{ status?.status?.level || 0 }}</span>
+              <!-- 一键重连：微信凭据可再生，后端换新 Code 后自动重启 Worker，无需重新扫码 -->
+              <BaseButton
+                v-if="isWxAccount"
+                variant="ghost"
+                size="sm"
+                class="ov-reconnect"
+                :loading="reconnecting"
+                title="一键重连：重新获取 Code 并重启账号"
+                aria-label="一键重连"
+                @click="handleReconnect"
+              >
+                <template #icon>
+                  <span class="i-carbon-renew" />
+                </template>
+                <span class="ov-reconnect__label">一键重连</span>
+              </BaseButton>
             </div>
             <div class="ov-presence">
               <span class="ov-presence__state" :class="isOnline ? 'is-online' : 'is-offline'">{{ isOnline ? '在线' : '离线' }}</span>
@@ -922,6 +984,32 @@ useIntervalFn(updateCountdowns, 1000)
   font-weight: var(--fw-700);
   line-height: 20px;
   font-variant-numeric: tabular-nums;
+}
+
+/* 一键重连按钮：紧贴微信昵称，窄屏下只保留图标 */
+.ov-reconnect {
+  flex: none;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--ui-primary);
+  font-size: 12px;
+  font-weight: var(--fw-600);
+}
+
+.ov-reconnect :deep(.n-button__content) {
+  gap: 4px;
+}
+
+@media (max-width: 420px) {
+  .ov-reconnect {
+    padding: 0 7px;
+  }
+
+  .ov-reconnect__label {
+    display: none;
+  }
 }
 
 .ov-presence {

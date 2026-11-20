@@ -209,6 +209,18 @@ watch(() => status.value?.wsError, (wsError: any) => {
   showAccountModal.value = true
 }, { deep: true })
 
+// 概览页「一键重连」判定授权已失效时，统一在此弹出扫码登录弹窗
+watch(() => accountStore.reloginRequest, (request) => {
+  const accountId = String(request?.accountId || '')
+  if (!accountId)
+    return
+  const target = accounts.value.find(acc => String(acc.id) === accountId)
+  if (!target)
+    return
+  accountToEdit.value = target
+  showAccountModal.value = true
+})
+
 const uptime = computed(() => {
   const diff = Math.floor(serverUptimeBase.value + (now.value.getTime() - lastPingTime.value) / 1000)
   const h = Math.floor(diff / 3600)

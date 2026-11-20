@@ -47,9 +47,19 @@ export const useAccountStore = defineStore('account', () => {
   const logs = ref<AccountLog[]>([])
   let accountsRequestSequence = 0
 
+  /**
+   * 重新登录请求：概览页「一键重连」发现授权已失效时发出，
+   * 由侧边栏统一弹出登录弹窗——避免页面和侧边栏各挂一个弹窗互相遮挡。
+   */
+  const reloginRequest = ref<{ accountId: string, nonce: number }>({ accountId: '', nonce: 0 })
+
   const currentAccount = computed(() =>
     accounts.value.find(a => String(a.id) === currentAccountId.value),
   )
+
+  function requestRelogin(accountId: string) {
+    reloginRequest.value = { accountId: String(accountId || ''), nonce: reloginRequest.value.nonce + 1 }
+  }
 
   async function fetchAccounts() {
     const sequence = ++accountsRequestSequence
@@ -168,6 +178,8 @@ export const useAccountStore = defineStore('account', () => {
     currentAccount,
     loading,
     logs,
+    reloginRequest,
+    requestRelogin,
     fetchAccounts,
     selectAccount,
     startAccount,

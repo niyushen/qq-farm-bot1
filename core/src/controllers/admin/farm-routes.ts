@@ -590,6 +590,35 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
+    // API: 一键重连（微信账号）
+    // 用账号自带的可再生凭据换新 Code 并重启 Worker；不回退到旧 Code，
+    // 旧 Code 几乎必然已过期，直接启动只会得到 WS 400 再绕一圈自动重登。
+    app.post('/api/accounts/:id/reconnect', async (req: Request, res: Response) => {
+        try {
+            const currentUser = (req as AuthenticatedRequest).currentUser || null;
+            const accountId = resolveAccId(ctx, req.params.id, currentUser);
+            if (!accountId || !canAccessAccount(ctx, req, accountId)) {
+                return res.status(403).json({ ok: false, error: '无权操作该账号' });
+            }
+            if (typeof ctx.provider.reconnectAccount !== 'function') {
+                return res.status(501).json({ ok: false, error: '当前运行模式不支持一键重连' });
+            }
+
+            const result = await ctx.provider.reconnectAccount(accountId);
+            const ok = result && result.ok === true;
+            // 重连失败是「已处理的结果」而非服务端异常：用 200 + ok:false 表达，
+            // 前端据 reason 区分「需要重新扫码」与「网络抖动，稍后重试」。
+            res.status(200).json({
+                ok,
+                reason: result?.reason || 'unknown',
+                error: ok ? undefined : (result?.message || '重连失败，请稍后重试'),
+                needRescan: result?.reason === 'need_rescan',
+            });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
     // API: 停止账号
     app.post('/api/accounts/:id/stop', (req: Request, res: Response) => {
         try {

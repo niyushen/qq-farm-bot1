@@ -166,6 +166,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         scheduleAutoCodeRefresh: autoCodeRefresh.scheduleAccount,
         stopAutoCodeRefresh: autoCodeRefresh.stopAccount,
         refreshAccountCode: autoCodeRefresh.refreshAccountCode,
+        needsWxRescan: wxCredentialGuard.needsRescan,
     });
 
     runtimeEvents.on('log', (entry: any) => {

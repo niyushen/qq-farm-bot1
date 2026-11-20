@@ -21,6 +21,8 @@ const emit = defineEmits(['close', 'saved'])
 const loading = ref(false)
 const errorMessage = ref('')
 const activeLoginTab = ref<'code' | 'wx_qr' | 'qq_qr' | 'capture'>('code')
+/** 打开弹窗时希望落到的页签；扫码页签是否可用取决于全局登录设置 */
+const preferredLoginTab = ref<'code' | 'wx_qr' | 'qq_qr' | 'capture'>('code')
 const loginSettingsLoaded = ref(false)
 const loginSettings = ref({
   wechatQrLogin: true,
@@ -464,6 +466,11 @@ async function loadLoginSettings() {
   finally {
     if (requestVersion === loginSettingsRequestVersion) {
       loginSettingsLoaded.value = true
+      // 登录设置就绪后才能确定扫码页签是否可用：微信扫码未开启时退回「输入 Code」
+      if (preferredLoginTab.value === 'wx_qr' && loginSettings.value.wechatQrLogin)
+        activeLoginTab.value = 'wx_qr'
+      else if (preferredLoginTab.value === 'qq_qr' && loginSettings.value.qqQrLogin)
+        activeLoginTab.value = 'qq_qr'
       if (activeLoginTab.value === 'wx_qr' && !loginSettings.value.wechatQrLogin)
         activeLoginTab.value = 'code'
       if (activeLoginTab.value === 'qq_qr' && !loginSettings.value.qqQrLogin)
@@ -901,6 +908,9 @@ function close() {
 watch(() => props.show, (newVal) => {
   if (newVal) {
     errorMessage.value = ''
+    // 重新登录微信账号时优先走扫码页签：扫码授权成功后自动提交，
+    // 不像「输入 Code」页签还要用户自己填 Code 再点保存。
+    preferredLoginTab.value = props.editData?.platform === 'wx' ? 'wx_qr' : 'code'
     activeLoginTab.value = 'code'
     resetWxLogin()
     resetCaptureLogin()

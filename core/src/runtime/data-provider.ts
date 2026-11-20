@@ -26,6 +26,8 @@ interface DataProviderOptions {
     scheduleAutoCodeRefresh?: (accountId: string) => void;
     stopAutoCodeRefresh?: (accountId: string) => void;
     refreshAccountCode?: (accountId: string, reason?: string) => Promise<boolean>;
+    /** 微信授权是否已被明确撤销（需要重新扫码才能恢复） */
+    needsWxRescan?: (accountId: string) => boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ function createDataProvider(options: DataProviderOptions) {
         scheduleAutoCodeRefresh,
         stopAutoCodeRefresh,
         refreshAccountCode,
+        needsWxRescan,
     } = options;
 
     function getStoredAccountsList(): any[] {
@@ -542,6 +545,58 @@ function createDataProvider(options: DataProviderOptions) {
         refreshAccountCode: (accountId: string, reason?: string) => {
             if (typeof refreshAccountCode !== 'function') return Promise.resolve(false);
             return Promise.resolve(refreshAccountCode(String(accountId || ''), reason || 'manual'));
+        },
+
+        /**
+         * 一键重连：用账号自带的可再生凭证换新 Code 并重启 Worker。
+         *
+         * 与 startAccountWithFreshCode 的区别：不回退到旧 Code 直接启动——
+         * 旧 Code 几乎必然已过期，直接启动只会得到 WS 400 然后再绕一圈自动重登。
+         * 这里把失败原因结构化返回，让前端能区分「网络抖动，稍后重试」与
+         * 「授权已被撤销，必须重新扫码」，避免用户对着同一个坏账号反复点。
+         */
+        reconnectAccount: async (accountRef: string) => {
+            const accountId = resolveAccountRefId(accountRef);
+            const acc = findAccountByAnyRef(accountId || accountRef);
+            if (!acc)
+                return { ok: false as const, reason: 'not_found' as const, message: '账号不存在' };
+
+            const platform = String(acc.platform || '');
+            if (platform !== 'wx')
+                return { ok: false as const, reason: 'unsupported_platform' as const, message: '仅微信账号支持一键重连' };
+
+            const hasCredential = !!String(acc.loginBuffer || '').trim();
+            if (!hasCredential)
+                return { ok: false as const, reason: 'no_credential' as const, message: '该账号没有登录凭据，请重新扫码' };
+
+            // 已明确失效的授权必须重新扫码：继续换 Code 只会反复失败
+            if (typeof needsWxRescan === 'function' && needsWxRescan(String(acc.id))) {
+                return { ok: false as const, reason: 'need_rescan' as const, message: '微信授权已失效，请重新扫码登录' };
+            }
+
+            if (typeof refreshAccountCode !== 'function')
+                return { ok: false as const, reason: 'unsupported' as const, message: '当前运行模式不支持一键重连' };
+
+            let refreshed = false;
+            try {
+                refreshed = await refreshAccountCode(String(acc.id), 'manual_reconnect');
+            }
+            catch (error: any) {
+                return {
+                    ok: false as const,
+                    reason: 'refresh_failed' as const,
+                    message: error?.message ? String(error.message) : '重连失败，请稍后重试',
+                };
+            }
+
+            if (!refreshed) {
+                return {
+                    ok: false as const,
+                    reason: 'refresh_failed' as const,
+                    message: '重连失败：请检查网络，或重新扫码登录',
+                };
+            }
+            return { ok: true as const, reason: 'reconnected' as const, message: '重连成功' };
         },
     };
 }
