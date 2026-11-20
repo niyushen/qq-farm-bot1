@@ -19,7 +19,7 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_fill_cans: false,
     // 普通罐头喂养：消耗罐头桶时长，默认关闭由用户按需开启
     ranch_feed_normal: false,
-    // 普通罐头使用阶段：'any' 任意可喂养阶段 / 'longest' 仅最长生长阶段（上游 PR #166）
+    // 普通罐头使用阶段：'any' 任意可喂养阶段 / 'longest' 仅最长生长阶段（上游 PR #166/#168）
     ranch_feed_normal_stage: 'longest' as 'any' | 'longest',
     // 有机罐头喂养：消耗有机罐头桶时长，默认关闭由用户按需开启
     ranch_feed_organic: false,
