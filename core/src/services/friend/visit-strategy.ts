@@ -3,7 +3,7 @@
  */
 
 const { PlantPhase } = require('../../config/config');
-const { getPlantName, getPlantById } = require('../../config/gameConfig');
+const { getPlantName, getPlantById, getIllustratedTypeByParam } = require('../../config/gameConfig');
 const {
     isAutomationOn,
     getFriendQuietHours,
@@ -291,10 +291,46 @@ interface AnalyzeResult {
 
 interface AnalyzeOptions {
     plantBlacklist?: number[] | null;
+    stealActivityOnly?: boolean;
+    stealGoldenOnly?: boolean;
+}
+
+/**
+ * 按账号配置读取偷菜果实类别过滤开关。
+ * 与蔬菜黑名单叠加；黄金虫等不偷菜的场景不传这些选项，因此不受影响。
+ */
+function getStealFruitFilter(accountId: any): Pick<AnalyzeOptions, 'stealActivityOnly' | 'stealGoldenOnly'> {
+    return {
+        stealActivityOnly: !!isAutomationOn('friend_steal_activity_only', accountId),
+        stealGoldenOnly: !!isAutomationOn('friend_steal_golden_only', accountId),
+    };
+}
+
+/**
+ * 取植物对应的图鉴果实类别。
+ * Illustrated.json 的 param 与 Plant.json 的 fruit.id 一一对应
+ * （普通/黄金/活动/装扮四类已全量核对），不依赖果实名或协议奖励分类字段。
+ */
+export function getFruitTypeByPlantId(plantId: number): string {
+    const plantCfg: any = getPlantById(plantId);
+    const fruitId: number = plantCfg && plantCfg.fruit ? toNum(plantCfg.fruit.id) : 0;
+    return fruitId ? getIllustratedTypeByParam(fruitId) : '';
+}
+
+/**
+ * 判断某类别果实是否属于本次偷菜目标。
+ * 两个开关都关闭时保持原行为（全部可偷）；都开启时取并集。
+ * 未识别类别（type 为空）在开启过滤时被跳过，避免误偷。
+ */
+export function isTargetFruit(fruitType: string, activityOnly: boolean, goldenOnly: boolean): boolean {
+    if (!activityOnly && !goldenOnly) return true;
+    if (activityOnly && fruitType === '活动果实') return true;
+    if (goldenOnly && fruitType === '黄金果实') return true;
+    return false;
 }
 
 export function analyzeFriendLands(lands: any[], myGid: number, friendName: string = '', options: AnalyzeOptions = {}): AnalyzeResult {
-    const { plantBlacklist = null } = options;
+    const { plantBlacklist = null, stealActivityOnly = false, stealGoldenOnly = false } = options;
     const result: AnalyzeResult = {
         stealable: [],   // 可偷
         stealableInfo: [],  // 可偷植物信息 { landId, plantId, name }
@@ -341,8 +377,15 @@ export function analyzeFriendLands(lands: any[], myGid: number, friendName: stri
                     // });
                     continue;
                 }
+
+                // 果实类别过滤（只偷活动/黄金果实）：与黑名单叠加，不匹配则直接跳过
+                const fruitType: string = getFruitTypeByPlantId(plantId);
+                if (!isTargetFruit(fruitType, stealActivityOnly, stealGoldenOnly)) {
+                    continue;
+                }
+
                 result.stealable.push(id);
-                result.stealableInfo.push({ landId: id, plantId, name: plantName });
+                result.stealableInfo.push({ landId: id, plantId, name: plantName, fruitType });
             }
             continue;
         }
@@ -507,7 +550,10 @@ export async function getFriendLandsDetail(friendGid: number, propagateErrors: b
         const lands: any[] = enterReply.lands || [];
         const state: any = getUserState();
         const plantBlacklist: number[] = getPlantBlacklist(state.accountId);
-        const analyzed: AnalyzeResult = analyzeFriendLands(lands, state.gid, '', { plantBlacklist });
+        const analyzed: AnalyzeResult = analyzeFriendLands(lands, state.gid, '', {
+            plantBlacklist,
+            ...getStealFruitFilter(state.accountId),
+        });
 
         const nowSec: number = getServerTimeSec();
         const landsMap: any = buildLandMap(lands);
@@ -656,7 +702,10 @@ export async function doFriendOperation(friendGid: any, opType: string, propagat
         const lands: any[] = enterReply.lands || [];
         const state: any = getUserState();
         const plantBlacklist: number[] = getPlantBlacklist(state.accountId);
-        const status: AnalyzeResult = analyzeFriendLands(lands, state.gid, '', { plantBlacklist });
+        const status: AnalyzeResult = analyzeFriendLands(lands, state.gid, '', {
+            plantBlacklist,
+            ...getStealFruitFilter(state.accountId),
+        });
         let count: number = 0;
 
         if (opType === 'steal') {
@@ -847,7 +896,10 @@ export async function visitFriend(
     }
 
     const plantBlacklist: number[] = getPlantBlacklist(accountId);
-    const status: AnalyzeResult = analyzeFriendLands(lands, myGid, name, { plantBlacklist });
+    const status: AnalyzeResult = analyzeFriendLands(lands, myGid, name, {
+        plantBlacklist,
+        ...getStealFruitFilter(accountId),
+    });
 
     // 执行操作
     const actions: string[] = [];

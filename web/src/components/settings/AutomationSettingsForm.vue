@@ -360,6 +360,23 @@ const ranchFeedNormalStages = [
             </div>
           </div>
 
+          <div v-if="settings.automation.friend && settings.automation.friend_steal" class="mt-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+            <div class="mb-2 text-xs text-blue-700 font-medium dark:text-blue-300">
+              偷菜目标
+            </div>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div class="automation-setting-item">
+                <BaseSwitch v-model="settings.automation.friend_steal_activity_only" class="automation-setting-item" label="只偷活动果实" />
+              </div>
+              <div class="automation-setting-item">
+                <BaseSwitch v-model="settings.automation.friend_steal_golden_only" class="automation-setting-item" label="只偷黄金果实" />
+              </div>
+            </div>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              两个都关闭时偷取全部可偷果实；同时开启时仅偷活动与黄金果实，普通果实不再偷取。
+            </p>
+          </div>
+
           <div v-if="settings.automation.friend && settings.automation.friend_golden_bug" class="mt-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <div class="mb-2 text-xs text-blue-700 font-medium dark:text-blue-300">
               黄金虫策略

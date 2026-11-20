@@ -24,6 +24,8 @@ export interface AutomationConfig extends RanchAutomationConfig {
   friend_auto_accept: boolean;
   friend_help_exp_limit: boolean;
   friend_steal: boolean;
+  friend_steal_activity_only: boolean;
+  friend_steal_golden_only: boolean;
   friend_help: boolean;
   friend_bad: boolean;
   friend_golden_bug: boolean;

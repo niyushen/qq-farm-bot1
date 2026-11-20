@@ -68,6 +68,9 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
         friend_auto_accept: true,
         friend_help_exp_limit: true,
         friend_steal: true,
+        // 偷菜目标类别过滤：默认关闭，开启后只偷对应类别果实（可同时开启取并集）
+        friend_steal_activity_only: false,
+        friend_steal_golden_only: false,
         friend_help: true,
         friend_bad: true,
         friend_golden_bug: false,

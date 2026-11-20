@@ -47,6 +47,8 @@ export interface AutomationConfig {
   fertilizer_land_types?: string[]
   fertilizer_smart_seconds?: number
   friend_steal?: boolean
+  friend_steal_activity_only?: boolean
+  friend_steal_golden_only?: boolean
   friend_help?: boolean
   friend_bad?: boolean
   friend_golden_bug?: boolean
