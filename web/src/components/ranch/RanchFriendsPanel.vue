@@ -2,11 +2,11 @@
 import { NButton } from 'naive-ui/es/button'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import api from '@/api'
 import { formatCount, useRanchActions } from '@/components/ranch/ranch-shared'
 import RanchAnimalCard from '@/components/ranch/RanchAnimalCard.vue'
 import RanchGate from '@/components/ranch/RanchGate.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import api from '@/api'
 import { useAccountStore } from '@/stores/account'
 import { useRanchStore } from '@/stores/ranch'
 import { useToastStore } from '@/stores/toast'
@@ -177,115 +177,115 @@ async function reloadList() {
         </div>
       </template>
       <template v-else>
-      <div v-if="loading && !listLoaded" class="friends__loading" role="status" aria-label="正在读取好友">
-        <span class="i-svg-spinners-90-ring-with-bg" />
-      </div>
-      <EmptyState v-else-if="listLoaded && !friends.length" title="暂无好友" description="添加游戏好友后可以互相拜访牧场" icon="i-carbon-user-multiple" />
-      <EmptyState v-else-if="listLoaded && !visible.length" title="没有匹配的好友" description="换个昵称或 GID 试试" icon="i-carbon-search" />
+        <div v-if="loading && !listLoaded" class="friends__loading" role="status" aria-label="正在读取好友">
+          <span class="i-svg-spinners-90-ring-with-bg" />
+        </div>
+        <EmptyState v-else-if="listLoaded && !friends.length" title="暂无好友" description="添加游戏好友后可以互相拜访牧场" icon="i-carbon-user-multiple" />
+        <EmptyState v-else-if="listLoaded && !visible.length" title="没有匹配的好友" description="换个昵称或 GID 试试" icon="i-carbon-search" />
 
-      <div v-else class="friends__list">
-        <div v-for="friend in visible" :key="friend.gid" class="friend-card" :class="{ 'is-expanded': selected === friend.gid, 'is-blacklisted': blacklistedSet.has(Number(friend.gid)) }">
-          <div
-            class="friend-row"
-            role="button"
-            tabindex="0"
-            :aria-expanded="selected === friend.gid"
-            :aria-label="`${friend.name}，查看牧场`"
-            @click="toggle(friend)"
-            @keydown.enter.self.prevent="toggle(friend)"
-            @keydown.space.self.prevent="toggle(friend)"
-          >
-            <div class="friend-avatar">
-              <img v-if="friend.avatarUrl && !failedAvatars[friend.gid]" :src="friend.avatarUrl" alt="" loading="lazy" @error="failedAvatars[friend.gid] = true">
-              <span v-else class="i-carbon-user" />
-            </div>
-            <div class="friend-main">
-              <div class="friend-name-row">
-                <strong class="friend-name" :title="friend.name">{{ friend.name }}</strong>
-                <span class="friend-gid">{{ friend.gid }}</span>
+        <div v-else class="friends__list">
+          <div v-for="friend in visible" :key="friend.gid" class="friend-card" :class="{ 'is-expanded': selected === friend.gid, 'is-blacklisted': blacklistedSet.has(Number(friend.gid)) }">
+            <div
+              class="friend-row"
+              role="button"
+              tabindex="0"
+              :aria-expanded="selected === friend.gid"
+              :aria-label="`${friend.name}，查看牧场`"
+              @click="toggle(friend)"
+              @keydown.enter.self.prevent="toggle(friend)"
+              @keydown.space.self.prevent="toggle(friend)"
+            >
+              <div class="friend-avatar">
+                <img v-if="friend.avatarUrl && !failedAvatars[friend.gid]" :src="friend.avatarUrl" alt="" loading="lazy" @error="failedAvatars[friend.gid] = true">
+                <span v-else class="i-carbon-user" />
               </div>
-              <div class="friend-tags">
-                <span v-if="blacklistedSet.has(Number(friend.gid))" class="f-tag f-tag--blocked">已拉黑</span>
-                <template v-if="selected === friend.gid && detail">
-                  <span class="f-tag f-tag--level">牧场 Lv.{{ detail.level }}</span>
-                  <span class="f-tag" :class="{ 'f-tag--steal': detail.canSteal }">
-                    <span class="i-carbon-shopping-bag" />{{ detail.canSteal ? `可偷 ${detail.stealableShelves} 个货架` : '暂无可偷产物' }}
-                  </span>
-                </template>
-                <span v-else-if="!blacklistedSet.has(Number(friend.gid))" class="f-tag">点击查看牧场</span>
-                <button
-                  class="friend-blacklist-btn"
-                  :class="{ 'is-out': blacklistedSet.has(Number(friend.gid)) }"
-                  :aria-label="blacklistedSet.has(Number(friend.gid)) ? `移出${friend.name}黑名单` : `将${friend.name}加入黑名单`"
-                  @click.stop="toggleBlacklist(friend.gid)"
-                >
-                  {{ blacklistedSet.has(Number(friend.gid)) ? '移出黑名单' : '加入黑名单' }}
-                </button>
+              <div class="friend-main">
+                <div class="friend-name-row">
+                  <strong class="friend-name" :title="friend.name">{{ friend.name }}</strong>
+                  <span class="friend-gid">{{ friend.gid }}</span>
+                </div>
+                <div class="friend-tags">
+                  <span v-if="blacklistedSet.has(Number(friend.gid))" class="f-tag f-tag--blocked">已拉黑</span>
+                  <template v-if="selected === friend.gid && detail">
+                    <span class="f-tag f-tag--level">牧场 Lv.{{ detail.level }}</span>
+                    <span class="f-tag" :class="{ 'f-tag--steal': detail.canSteal }">
+                      <span class="i-carbon-shopping-bag" />{{ detail.canSteal ? `可偷 ${detail.stealableShelves} 个货架` : '暂无可偷产物' }}
+                    </span>
+                  </template>
+                  <span v-else-if="!blacklistedSet.has(Number(friend.gid))" class="f-tag">点击查看牧场</span>
+                  <button
+                    class="friend-blacklist-btn"
+                    :class="{ 'is-out': blacklistedSet.has(Number(friend.gid)) }"
+                    :aria-label="blacklistedSet.has(Number(friend.gid)) ? `移出${friend.name}黑名单` : `将${friend.name}加入黑名单`"
+                    @click.stop="toggleBlacklist(friend.gid)"
+                  >
+                    {{ blacklistedSet.has(Number(friend.gid)) ? '移出黑名单' : '加入黑名单' }}
+                  </button>
+                </div>
               </div>
+              <span class="friend-chevron i-carbon-chevron-down" aria-hidden="true" />
             </div>
-            <span class="friend-chevron i-carbon-chevron-down" aria-hidden="true" />
-          </div>
 
-          <div v-if="selected === friend.gid" class="friend-shelves">
-            <div v-if="loading && !detail" class="flex justify-center py-6">
-              <span class="i-svg-spinners-90-ring-with-bg text-2xl text-green-600" />
-            </div>
-            <template v-else-if="detail">
-              <p v-if="detail.notice" class="friend-shelves__notice" role="alert">
-                {{ detail.notice }}
-              </p>
-              <div class="friend-interactions">
-                <span>今日可抚摸 <b>{{ detail.strokeRemaining }}</b> 次</span>
-                <span>今日可放蚊子 <b>{{ detail.mosquitoRemaining }}</b> 次</span>
-                <NButton size="small" secondary :disabled="disabled || !detail.cleanableHazards" @click="request('cleanFriend', { hostGid: friend.gid })">
-                  一键清理
-                </NButton>
+            <div v-if="selected === friend.gid" class="friend-shelves">
+              <div v-if="loading && !detail" class="flex justify-center py-6">
+                <span class="i-svg-spinners-90-ring-with-bg text-2xl text-green-600" />
               </div>
-              <section v-for="pen in detail.ranches" :key="pen.id" class="friend-pen">
-                <div class="friend-shelves__head">
-                  <h4>{{ pen.name }} <small>蚊子 {{ pen.mosquitoes }} / {{ pen.mosquitoLimit }}</small></h4>
-                  <NButton size="small" secondary :disabled="disabled || !pen.mosquitoRoom || !detail.mosquitoRemaining" :aria-label="`向好友${pen.name}放蚊子`" @click="request('putMosquito', { hostGid: friend.gid, ranchId: pen.id })">
-                    放蚊子
+              <template v-else-if="detail">
+                <p v-if="detail.notice" class="friend-shelves__notice" role="alert">
+                  {{ detail.notice }}
+                </p>
+                <div class="friend-interactions">
+                  <span>今日可抚摸 <b>{{ detail.strokeRemaining }}</b> 次</span>
+                  <span>今日可放蚊子 <b>{{ detail.mosquitoRemaining }}</b> 次</span>
+                  <NButton size="small" secondary :disabled="disabled || !detail.cleanableHazards" @click="request('cleanFriend', { hostGid: friend.gid })">
+                    一键清理
                   </NButton>
                 </div>
-                <div class="friend-pen__animals">
-                  <RanchAnimalCard
-                    v-for="animal in pen.animals" :key="animal.id" :animal="animal" :pen="pen.name"
-                    friend actionable :disabled="disabled"
-                    @stroke="request('stroke', { hostGid: friend.gid, ranchId: pen.id, animalId: animal.id })"
-                  />
-                </div>
-              </section>
-              <div class="friend-shelves__head">
-                <span><span class="i-carbon-box" aria-hidden="true" />货架产物</span>
-                <NButton size="small" type="primary" :disabled="disabled || !detail.canSteal" @click="request('steal', { hostGid: friend.gid })">
-                  <template #icon>
-                    <span class="i-carbon-shopping-bag" />
-                  </template>
-                  一键偷取
-                </NButton>
-              </div>
-              <div v-if="detailShelves.length" class="friend-shelves__grid">
-                <div v-for="shelf in detailShelves" :key="shelf.key" class="shelf" :class="{ 'is-stealable': shelf.canSteal }">
-                  <span class="shelf__slot">货架 {{ shelf.slot }}</span>
-                  <div class="shelf__products">
-                    <span v-for="product in shelf.products" :key="product.id" :title="product.name">
-                      <img :src="product.image" alt="">{{ product.name }}<b>×{{ formatCount(product.count) }}</b>
-                    </span>
+                <section v-for="pen in detail.ranches" :key="pen.id" class="friend-pen">
+                  <div class="friend-shelves__head">
+                    <h4>{{ pen.name }} <small>蚊子 {{ pen.mosquitoes }} / {{ pen.mosquitoLimit }}</small></h4>
+                    <NButton size="small" secondary :disabled="disabled || !pen.mosquitoRoom || !detail.mosquitoRemaining" :aria-label="`向好友${pen.name}放蚊子`" @click="request('putMosquito', { hostGid: friend.gid, ranchId: pen.id })">
+                      放蚊子
+                    </NButton>
                   </div>
-                  <span class="shelf__state">{{ shelf.canSteal ? '可偷取' : '不可偷' }}</span>
+                  <div class="friend-pen__animals">
+                    <RanchAnimalCard
+                      v-for="animal in pen.animals" :key="animal.id" :animal="animal" :pen="pen.name"
+                      friend actionable :disabled="disabled"
+                      @stroke="request('stroke', { hostGid: friend.gid, ranchId: pen.id, animalId: animal.id })"
+                    />
+                  </div>
+                </section>
+                <div class="friend-shelves__head">
+                  <span><span class="i-carbon-box" aria-hidden="true" />货架产物</span>
+                  <NButton size="small" type="primary" :disabled="disabled || !detail.canSteal" @click="request('steal', { hostGid: friend.gid })">
+                    <template #icon>
+                      <span class="i-carbon-shopping-bag" />
+                    </template>
+                    一键偷取
+                  </NButton>
                 </div>
-              </div>
-              <p v-else class="friend-shelves__empty">
-                好友的货架上暂时没有产物
+                <div v-if="detailShelves.length" class="friend-shelves__grid">
+                  <div v-for="shelf in detailShelves" :key="shelf.key" class="shelf" :class="{ 'is-stealable': shelf.canSteal }">
+                    <span class="shelf__slot">货架 {{ shelf.slot }}</span>
+                    <div class="shelf__products">
+                      <span v-for="product in shelf.products" :key="product.id" :title="product.name">
+                        <img :src="product.image" alt="">{{ product.name }}<b>×{{ formatCount(product.count) }}</b>
+                      </span>
+                    </div>
+                    <span class="shelf__state">{{ shelf.canSteal ? '可偷取' : '不可偷' }}</span>
+                  </div>
+                </div>
+                <p v-else class="friend-shelves__empty">
+                  好友的货架上暂时没有产物
+                </p>
+              </template>
+              <p v-else-if="error" class="friend-shelves__notice" role="alert">
+                {{ error }}
               </p>
-            </template>
-            <p v-else-if="error" class="friend-shelves__notice" role="alert">
-              {{ error }}
-            </p>
+            </div>
           </div>
         </div>
-      </div>
       </template>
     </RanchGate>
   </div>
