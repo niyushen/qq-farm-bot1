@@ -655,6 +655,9 @@ useIntervalFn(updateCountdowns, 1000)
             <small v-if="(status?.sessionGoldGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionGoldGained || 0) > 0 ? 'is-up' : 'is-down'">
               本次 {{ (status?.sessionGoldGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionGoldGained) }}
             </small>
+            <small v-if="(status?.todayGoldGained || 0) !== 0" class="ov-tile__delta" :class="(status?.todayGoldGained || 0) > 0 ? 'is-up' : 'is-down'">
+              今日 {{ (status?.todayGoldGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.todayGoldGained) }}
+            </small>
           </div>
           <div class="ov-tile">
             <span class="ov-tile__label"><span class="i-fas-ticket-alt text-emerald-500" />点券</span>
@@ -662,10 +665,19 @@ useIntervalFn(updateCountdowns, 1000)
             <small v-if="(status?.sessionCouponGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionCouponGained || 0) > 0 ? 'is-up' : 'is-down'">
               本次 {{ (status?.sessionCouponGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionCouponGained) }}
             </small>
+            <small v-if="(status?.todayCouponGained || 0) !== 0" class="ov-tile__delta" :class="(status?.todayCouponGained || 0) > 0 ? 'is-up' : 'is-down'">
+              今日 {{ (status?.todayCouponGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.todayCouponGained) }}
+            </small>
           </div>
           <div class="ov-tile">
             <span class="ov-tile__label"><span class="i-fas-seedling text-amber-500" />金豆豆</span>
             <strong class="ov-tile__value">{{ formatAssetAmount(status?.status?.goldBean) }}</strong>
+            <small v-if="(status?.sessionGoldBeanGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionGoldBeanGained || 0) > 0 ? 'is-up' : 'is-down'">
+              本次 {{ (status?.sessionGoldBeanGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionGoldBeanGained) }}
+            </small>
+            <small v-if="(status?.todayGoldBeanGained || 0) !== 0" class="ov-tile__delta" :class="(status?.todayGoldBeanGained || 0) > 0 ? 'is-up' : 'is-down'">
+              今日 {{ (status?.todayGoldBeanGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.todayGoldBeanGained) }}
+            </small>
           </div>
           <div class="ov-tile">
             <span class="ov-tile__label"><span class="i-fas-gem text-cyan-500" />钻石</span>

@@ -788,7 +788,7 @@ async function startBot(config: any): Promise<void> {
         // 登录成功后，以当前金币/经验/点券作为统计基线，并清空会话增量
         const latest = getUserState();
         const accountId = process.env.FARM_ACCOUNT_ID || '';
-        initStatsWithPersistence(accountId, Number(latest.gold || 0), Number(latest.exp || 0), Number(latest.coupon || 0));
+        initStatsWithPersistence(accountId, Number(latest.gold || 0), Number(latest.exp || 0), Number(latest.coupon || 0), Number(latest.goldBean || 0));
         resetSessionGains();
 
         // 登录成功后启动各模块

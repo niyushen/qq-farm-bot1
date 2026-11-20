@@ -92,30 +92,35 @@ interface LastState {
     gold: number;
     exp: number;
     coupon: number;
+    goldBean: number;
 }
 
 const lastState: LastState = {
     gold: -1,
     exp: -1,
     coupon: -1,
+    goldBean: -1,
 };
 
 interface InitialState {
     gold: number | null;
     exp: number | null;
     coupon: number | null;
+    goldBean: number | null;
 }
 
 const initialState: InitialState = {
     gold: null,
     exp: null,
     coupon: null,
+    goldBean: null,
 };
 
 interface SessionData {
     goldGained: number;
     expGained: number;
     couponGained: number;
+    goldBeanGained: number;
     lastExpGain: number;
     lastGoldGain: number;
     lastExpTime?: number;
@@ -125,9 +130,24 @@ const session: SessionData = {
     goldGained: 0,
     expGained: 0,
     couponGained: 0,
+    goldBeanGained: 0,
     lastExpGain: 0,
     lastGoldGain: 0,
 };
+
+/** 「今日增加」基线：按系统时区日期记录首次观测到的余额，跨重启在同日内保留。 */
+interface DailyBaseline {
+    date: string | null;
+    values: Record<string, number>;
+}
+
+const dailyBaseline: DailyBaseline = { date: null, values: {} };
+
+/** 离线时复用最后一次在线计算出的今日增量，避免用登录前的 0 余额污染基线。 */
+const lastDailyGains = { exp: 0, gold: 0, coupon: 0, goldBean: 0 };
+
+/** 「本次增加」基线：牧场等按需读取的资产在本次会话首次读取时记录。 */
+const sessionAssets: Record<string, number> = {};
 
 let currentAccountId: string | null = null;
 let sessionStartedAt = Date.now();
@@ -150,8 +170,53 @@ function checkAndResetDailyStats(): void {
         Object.keys(operations).forEach((key: string) => {
             operations[key] = 0;
         });
+        dailyBaseline.date = todayKey;
+        dailyBaseline.values = {};
+        scheduleSave();
     }
     currentDateKey = todayKey;
+    if (dailyBaseline.date !== todayKey) {
+        dailyBaseline.date = todayKey;
+        dailyBaseline.values = {};
+        scheduleSave();
+    }
+}
+
+/** 取当日增量；首次观测某资产时以当前余额为基线，返回 0。 */
+function getDailyGain(key: string, current: number): number {
+    const todayKey: string = getTodayKey();
+    if (dailyBaseline.date !== todayKey) {
+        dailyBaseline.date = todayKey;
+        dailyBaseline.values = {};
+        scheduleSave();
+    }
+    if (dailyBaseline.values[key] === undefined) {
+        dailyBaseline.values[key] = current;
+        scheduleSave();
+        return 0;
+    }
+    return current - dailyBaseline.values[key];
+}
+
+/**
+ * 计算牧场货币的本次/今日增量。
+ * 本次基线在会话内首次读取时建立，今日基线同日跨重启保留。
+ */
+function getRanchAssetGains(currencies: any[]): Record<string, { sessionGained: number, todayGained: number }> {
+    checkAndResetDailyStats();
+    const result: Record<string, { sessionGained: number, todayGained: number }> = {};
+    for (const item of (Array.isArray(currencies) ? currencies : [])) {
+        const id = String(item && item.id !== undefined && item.id !== null ? item.id : '');
+        const current: number = Number(item && item.count);
+        if (!id || !Number.isFinite(current)) continue;
+        const key = `ranch:${id}`;
+        if (sessionAssets[key] === undefined) sessionAssets[key] = current;
+        result[id] = {
+            sessionGained: current - sessionAssets[key],
+            todayGained: getDailyGain(key, current),
+        };
+    }
+    return result;
 }
 
 function scheduleSave(): void {
@@ -171,25 +236,30 @@ function doSave(): void {
         operations: { ...operations },
         totalOperations: { ...totalOperations },
         initialState: { ...initialState },
+        dailyBaseline: { date: dailyBaseline.date, values: { ...dailyBaseline.values } },
         savedAt: Date.now(),
     };
     savePersistedStats(currentAccountId, data);
 }
 
-function initStats(gold: number, exp: number, coupon: number = 0): void {
+function initStats(gold: number, exp: number, coupon: number = 0, goldBean: number = 0): void {
     sessionStartedAt = Date.now();
     const g: number = Number.isFinite(Number(gold)) ? Number(gold) : 0;
     const e: number = Number.isFinite(Number(exp)) ? Number(exp) : 0;
     const c: number = Number.isFinite(Number(coupon)) ? Number(coupon) : 0;
+    const b: number = Number.isFinite(Number(goldBean)) ? Number(goldBean) : 0;
     lastState.gold = g;
     lastState.exp = e;
     lastState.coupon = c;
+    lastState.goldBean = b;
     initialState.gold = g;
     initialState.exp = e;
     initialState.coupon = c;
+    initialState.goldBean = b;
+    Object.keys(sessionAssets).forEach((key: string) => { delete sessionAssets[key]; });
 }
 
-function initStatsWithPersistence(accountId: string, gold: number, exp: number, coupon: number = 0): void {
+function initStatsWithPersistence(accountId: string, gold: number, exp: number, coupon: number = 0, goldBean: number = 0): void {
     currentAccountId = accountId;
     const todayKey: string = getTodayKey();
     currentDateKey = todayKey;
@@ -211,13 +281,22 @@ function initStatsWithPersistence(accountId: string, gold: number, exp: number, 
         }
     }
 
+    // 「今日增加」基线：同日重启后沿用已保存的首次余额，跨日则重新建立
+    if (saved && saved.date === todayKey && saved.dailyBaseline && saved.dailyBaseline.date === todayKey && saved.dailyBaseline.values && typeof saved.dailyBaseline.values === 'object') {
+        dailyBaseline.date = todayKey;
+        dailyBaseline.values = { ...saved.dailyBaseline.values };
+    } else {
+        dailyBaseline.date = todayKey;
+        dailyBaseline.values = {};
+    }
+
     // 全期累计跨天不重置：无论是否同一天都恢复
     const savedTotals: any = saved && saved.totalOperations && typeof saved.totalOperations === 'object' ? saved.totalOperations : {};
     Object.keys(savedTotals).forEach((key: string) => {
         totalOperations[key] = Number(savedTotals[key]) || 0;
     });
 
-    initStats(gold, exp, coupon);
+    initStats(gold, exp, coupon, goldBean);
 }
 
 function updateStats(currentGold: number, currentExp: number): void {
@@ -252,28 +331,31 @@ function recordGoldExp(gold: number, exp: number): void {
     updateStats(gold, exp);
 }
 
-function setInitialValues(gold: number, exp: number, coupon: number = 0): void {
-    initStats(gold, exp, coupon);
+function setInitialValues(gold: number, exp: number, coupon: number = 0, goldBean: number = 0): void {
+    initStats(gold, exp, coupon, goldBean);
 }
 
 function resetSessionGains(): void {
     session.goldGained = 0;
     session.expGained = 0;
     session.couponGained = 0;
+    session.goldBeanGained = 0;
     session.lastGoldGain = 0;
     session.lastExpGain = 0;
     session.lastExpTime = 0;
 }
 
-function recomputeSessionTotals(currentGold: number, currentExp: number, currentCoupon: number): void {
-    if (initialState.gold === null || initialState.exp === null || initialState.coupon === null) {
+function recomputeSessionTotals(currentGold: number, currentExp: number, currentCoupon: number, currentGoldBean: number): void {
+    if (initialState.gold === null || initialState.exp === null || initialState.coupon === null || initialState.goldBean === null) {
         initialState.gold = currentGold;
         initialState.exp = currentExp;
         initialState.coupon = currentCoupon;
+        initialState.goldBean = currentGoldBean;
     }
     session.goldGained = currentGold - (initialState.gold as number);
     session.expGained = currentExp - (initialState.exp as number);
     session.couponGained = currentCoupon - (initialState.coupon as number);
+    session.goldBeanGained = currentGoldBean - (initialState.goldBean as number);
 }
 
 function getStats(statusData: any, userState: any, connected: boolean, limits: any): any {
@@ -292,7 +374,11 @@ function getStats(statusData: any, userState: any, connected: boolean, limits: a
 
     if (connected) {
         updateStats(currentGold, currentExp);
-        recomputeSessionTotals(currentGold, currentExp, currentCoupon);
+        recomputeSessionTotals(currentGold, currentExp, currentCoupon, currentGoldBean);
+        lastDailyGains.exp = getDailyGain('exp', currentExp);
+        lastDailyGains.gold = getDailyGain('gold', currentGold);
+        lastDailyGains.coupon = getDailyGain('coupon', currentCoupon);
+        lastDailyGains.goldBean = getDailyGain('goldBean', currentGoldBean);
     }
 
     const operationsSnapshot: OperationsMap = { ...operations };
@@ -315,6 +401,11 @@ function getStats(statusData: any, userState: any, connected: boolean, limits: a
         sessionExpGained: session.expGained,
         sessionGoldGained: session.goldGained,
         sessionCouponGained: session.couponGained,
+        sessionGoldBeanGained: session.goldBeanGained,
+        todayExpGained: lastDailyGains.exp,
+        todayGoldGained: lastDailyGains.gold,
+        todayCouponGained: lastDailyGains.coupon,
+        todayGoldBeanGained: lastDailyGains.goldBean,
         lastExpGain: session.lastExpGain,
         lastGoldGain: session.lastGoldGain,
         limits,
@@ -338,4 +429,5 @@ module.exports = {
     getTodayKey,
     loadPersistedStats,
     checkAndResetDailyStats,
+    getRanchAssetGains,
 };

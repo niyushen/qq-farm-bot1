@@ -217,6 +217,12 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
     return inScene(async (cells: any) => {
         const raw = await loadRaw(cells);
         const state = snapshot(raw);
+        // 为资产磁贴附加「本次」「今日」增量，基线由统计服务按账号/日期维护
+        const gains = require('../stats').getRanchAssetGains(state.currencies);
+        state.currencies = (state.currencies || []).map((currency: any) => ({
+            ...currency,
+            ...(gains[String(currency.id)] || {}),
+        }));
         state.pendingOperations = require('./operation-state').forCurrentAccount().pending().map(pendingOperationView);
         if (view === 'bag') state.bag = inventory(raw);
         if (view === 'shop') state.shop = await catalog(raw, Number(shopId ?? 5));

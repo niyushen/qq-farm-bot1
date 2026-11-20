@@ -54,6 +54,12 @@ const expHint = computed(() => {
 
 const currency = (id: number) => state.value?.currencies?.find((c: any) => Number(c.id) === id)
 const assetTiles = computed(() => [1007, 1002, 1005, 1008].map(id => currency(id)).filter(Boolean))
+function formatGain(value: unknown) {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num === 0)
+    return '0'
+  return `${num > 0 ? '+' : ''}${formatCount(num)}`
+}
 const stockTiles = computed(() => {
   const buckets = BUCKETS.map(bucket => ({
     key: bucket.id,
@@ -148,6 +154,12 @@ function facilityMeter(f: any) {
             <div v-for="item in assetTiles" :key="item.id" class="ov-tile">
               <span class="ov-tile__label"><img class="ov-tile__img" :src="item.image" alt="">{{ item.name }}</span>
               <strong class="ov-tile__value" :title="formatCount(item.count)">{{ formatCount(item.count) }}</strong>
+              <small v-if="(item.sessionGained || 0) !== 0" class="ov-tile__delta" :class="(item.sessionGained || 0) > 0 ? 'is-up' : 'is-down'">
+                本次 {{ formatGain(item.sessionGained) }}
+              </small>
+              <small v-if="(item.todayGained || 0) !== 0" class="ov-tile__delta" :class="(item.todayGained || 0) > 0 ? 'is-up' : 'is-down'">
+                今日 {{ formatGain(item.todayGained) }}
+              </small>
             </div>
           </div>
         </section>
