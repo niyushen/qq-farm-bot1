@@ -4,6 +4,7 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_harvest: true,
     ranch_produce: true,
     ranch_buy: true,
+    ranch_activate_shed: true,
     ranch_upgrade: true,
     ranch_sell: true,
     // 仓鼠集市自动兑换有机化肥：会消耗松果/便便换取化肥，默认关闭由用户按需开启
@@ -18,7 +19,7 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_fill_cans: false,
     // 普通罐头喂养：消耗罐头桶时长，默认关闭由用户按需开启
     ranch_feed_normal: false,
-    // 普通罐头使用阶段：'any' 任意可喂养阶段 / 'longest' 仅最长生长阶段（上游 PR #166）
+    // 普通罐头使用阶段：'any' 任意可喂养阶段 / 'longest' 仅最长生长阶段（上游 PR #166/#168）
     ranch_feed_normal_stage: 'longest' as 'any' | 'longest',
     // 有机罐头喂养：消耗有机罐头桶时长，默认关闭由用户按需开启
     ranch_feed_organic: false,
@@ -87,7 +88,11 @@ export function normalizeRanchSetting(key: string, value: unknown): boolean | nu
     return value;
 }
 
-export const RANCH_MARKET_SWITCH_KEYS = ['ranch_market_organic_poop', 'ranch_market_organic_pinecone'] as const;
+export const RANCH_MARKET_SWITCH_BY_CURRENCY = {
+    7002: 'ranch_market_organic_poop',
+    1008: 'ranch_market_organic_pinecone',
+} as const;
+export const RANCH_MARKET_SWITCH_KEYS = Object.values(RANCH_MARKET_SWITCH_BY_CURRENCY);
 
 /** 旧配置的总开关只填充缺失的新字段，已明确设置的独立开关优先。 */
 export function migrateRanchMarketAutomation(input: Record<string, any>): Record<string, any> {
