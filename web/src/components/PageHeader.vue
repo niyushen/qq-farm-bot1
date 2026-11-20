@@ -35,7 +35,7 @@ function toggleNavigation() {
     <div class="page-heading min-w-0">
       <span v-if="currentPage" class="page-heading__icon" :class="currentPage.icon" />
       <h1 class="page-heading__title" tabindex="-1">
-        {{ currentPage?.label || 'QQ农场智能助手' }}
+        {{ currentPage?.label || '科技偷菜' }}
       </h1>
     </div>
     <div class="flex shrink-0 items-center gap-1">

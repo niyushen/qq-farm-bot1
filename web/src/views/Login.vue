@@ -317,7 +317,7 @@ onMounted(fetchGameVersion)
         <div>
           <span class="logo-kicker">QQ FARM</span>
           <h1 class="logo-title">
-            QQ农场智能助手
+            科技偷菜
           </h1>
           <p class="logo-subtitle">
             {{ tab === 'register' ? '创建账号 · 卡密激活' : tab === 'reset' ? '找回密码' : '欢迎回来，开启智慧农耕之旅' }}

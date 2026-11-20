@@ -154,7 +154,7 @@ onMounted(loadConfig)
       <BaseInput v-model="config.senderName" label="发件人名称" type="text" placeholder="发件人显示名称（可留空）" />
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <BaseInput v-model="config.subject" label="默认邮件主题" type="text" placeholder="QQ 农场智能助手通知" />
+        <BaseInput v-model="config.subject" label="默认邮件主题" type="text" placeholder="科技偷菜通知" />
         <BaseInput v-model="config.content" label="默认邮件内容" type="text" placeholder="留空则每封邮件单独填写" />
       </div>
 
