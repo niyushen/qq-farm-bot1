@@ -6,15 +6,20 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_buy: true,
     ranch_upgrade: true,
     ranch_sell: true,
-    ranch_market_organic: true,
+    // 仓鼠集市自动兑换有机化肥：会消耗松果/便便换取化肥，默认关闭由用户按需开启
+    ranch_market_organic: false,
     ranch_grass: true,
     ranch_grass_buy: true,
     ranch_grass_threshold_percent: 20,
-    ranch_fill_cans: true,
-    ranch_feed_normal: true,
-    ranch_feed_organic: true,
+    // 自动填充库存罐头：会消耗罐头时长道具，默认关闭由用户按需开启
+    ranch_fill_cans: false,
+    // 普通罐头喂养：消耗罐头桶时长，默认关闭由用户按需开启
+    ranch_feed_normal: false,
+    // 有机罐头喂养：消耗有机罐头桶时长，默认关闭由用户按需开启
+    ranch_feed_organic: false,
     ranch_clean: true,
-    ranch_stroke: true,
+    // 自动抚摸动物：会消耗好友互动配额，默认关闭由用户按需开启
+    ranch_stroke: false,
     ranch_friend_steal: true,
     ranch_friend_clean: true,
     ranch_friend_mosquito: true,
