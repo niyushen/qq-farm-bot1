@@ -307,14 +307,31 @@ function getStealFruitFilter(accountId: any): Pick<AnalyzeOptions, 'stealActivit
 }
 
 /**
- * 取植物对应的图鉴果实类别。
- * Illustrated.json 的 param 与 Plant.json 的 fruit.id 一一对应
- * （普通/黄金/活动/装扮四类已全量核对），不依赖果实名或协议奖励分类字段。
+ * 取植物对应的偷菜果实类别。
+ *
+ * "活动果实"口径（只偷活动果实开关）：
+ *   1. 图鉴明确标为活动果实的
+ *   2. 图鉴标为普通果实、但属于活动限制作物或稀有珍品（rarity>=2，含森野/奶茶等系列活动作物）
+ *   3. 没有普通种植种子、或有活动出售条件的作物
+ * 黄金果实/装扮果实保留原类别，由"只偷黄金果实"开关独立控制，不并入活动果实。
  */
 export function getFruitTypeByPlantId(plantId: number): string {
     const plantCfg: any = getPlantById(plantId);
     const fruitId: number = plantCfg && plantCfg.fruit ? toNum(plantCfg.fruit.id) : 0;
-    return fruitId ? getIllustratedTypeByParam(fruitId) : '';
+    if (!fruitId) return '';
+
+    const illustratedType: string = getIllustratedTypeByParam(fruitId);
+    if (illustratedType === '黄金果实' || illustratedType === '装扮果实' || illustratedType === '活动果实') {
+        return illustratedType;
+    }
+
+    const itemCfg: any = getItemById(fruitId);
+    const rarity: number = itemCfg ? toNum(itemCfg.rarity) : 0;
+    const saleCond: string = String((itemCfg && itemCfg.sell_cond) || '');
+    const seedId: number = toNum(plantCfg.seed_id);
+    if (rarity >= 2 || /活动/.test(saleCond) || !seedId) return '活动果实';
+
+    return illustratedType || '普通果实';
 }
 
 /**

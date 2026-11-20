@@ -16,6 +16,11 @@ const PLANT = {
   activity: 1029001,    // 哈哈小南瓜 → 活动果实
   golden: 1120112,      // 黄金·风信子 → 黄金果实
   decoration: 1028001,  // 哈哈南瓜塔 → 装扮果实
+  mandala: 1020116,     // 曼陀罗华 → 图鉴标普通果实，普通商城种子，按普通果实处理
+  lingzhi: 1020202,     // 金边灵芝 → 图鉴标普通果实，普通商城种子，按普通果实处理
+  guava: 1020529,       // 森野芭乐 → 活动限制作物（rarity=3）
+  rare: 1020224,        // 昙花 → 稀有珍品（rarity=3，无活动标记）
+  feed: 1020040,        // 牧草 → 普通饲料作物（rarity=1，仅 jumps 特殊）
 };
 
 function land(id, plantId) {
@@ -43,6 +48,56 @@ test('图鉴类别按 fruit.id 正确识别四类果实', () => {
   assert.equal(getFruitTypeByPlantId(PLANT.golden), '黄金果实');
   assert.equal(getFruitTypeByPlantId(PLANT.decoration), '装扮果实');
   assert.equal(getFruitTypeByPlantId(99999999), '', '未知植物返回空类别');
+});
+
+test('活动限制作物与稀有珍品（rarity>=2）按活动果实处理', () => {
+  assert.equal(getFruitTypeByPlantId(PLANT.guava), '活动果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.rare), '活动果实', 'rarity>=2 的稀有珍品按活动果实处理');
+});
+
+test('普通作物、饲料作物与商城作物仍为普通果实，黄金/装扮果实不被并入活动果实', () => {
+  assert.equal(getFruitTypeByPlantId(PLANT.normal), '普通果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.feed), '普通果实', '牧草不应因 jumps 特殊被误判为活动果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.mandala), '普通果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.lingzhi), '普通果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.golden), '黄金果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.decoration), '装扮果实');
+});
+
+test('只偷活动果实：稀有珍品与活动限制作物一并偷取，饲料/普通作物跳过', () => {
+  const lands = [
+    land(1, PLANT.rare),
+    land(2, PLANT.guava),
+    land(3, PLANT.normal),
+    land(4, PLANT.feed),
+    land(5, PLANT.golden),
+  ];
+  const result = analyzeFriendLands(lands, 999, 'f', { stealActivityOnly: true });
+  assert.deepEqual(result.stealable, [1, 2]);
+
+  // 只偷黄金果实时仍只保留黄金果实，不误偷这些活动果实
+  const goldenOnly = analyzeFriendLands(lands, 999, 'f', { stealGoldenOnly: true });
+  assert.deepEqual(goldenOnly.stealable, [5]);
+});
+
+test('只偷活动果实：曼陀罗华/金边灵芝按普通果实跳过，森野芭乐保留', () => {
+  const lands = [
+    land(1, PLANT.mandala),
+    land(2, PLANT.lingzhi),
+    land(3, PLANT.guava),
+    land(4, PLANT.normal),
+  ];
+  const result = analyzeFriendLands(lands, 999, 'f', { stealActivityOnly: true });
+  assert.deepEqual(result.stealable, [3]);
+  assert.deepEqual(result.stealableInfo.map(info => info.fruitType), ['活动果实']);
+
+  // 只偷黄金果实时不误偷这些果实
+  const goldenOnly = analyzeFriendLands(lands, 999, 'f', { stealGoldenOnly: true });
+  assert.deepEqual(goldenOnly.stealable, []);
+
+  // 开关关闭时保持全偷
+  const all = analyzeFriendLands(lands, 999, 'f');
+  assert.deepEqual(all.stealable, [1, 2, 3, 4]);
 });
 
 test('isTargetFruit 表驱动：两关全偷，单开只偷对应类，双开取并集', () => {
