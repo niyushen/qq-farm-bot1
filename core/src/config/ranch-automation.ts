@@ -7,7 +7,10 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_upgrade: true,
     ranch_sell: true,
     // 仓鼠集市自动兑换有机化肥：会消耗松果/便便换取化肥，默认关闭由用户按需开启
+    // 旧总开关仅用于兼容旧配置；运行时分别检查两种货币开关（上游 PR #162 拆分）。
     ranch_market_organic: false,
+    ranch_market_organic_poop: false,
+    ranch_market_organic_pinecone: false,
     ranch_grass: true,
     ranch_grass_buy: true,
     ranch_grass_threshold_percent: 20,
@@ -24,6 +27,7 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_friend_clean: true,
     ranch_friend_mosquito: true,
     ranch_task: true,
+    ranch_illustrated: true,
     ranch_share: true,
     ranch_daily_benefit: true,
     ranch_check_minutes: 5,
@@ -75,4 +79,21 @@ export function normalizeRanchSetting(key: string, value: unknown): boolean | nu
     }
     if (typeof value !== 'boolean') throw Object.assign(new Error('牧场开关必须为布尔值'), { code: 'INVALID_CONFIG' });
     return value;
+}
+
+export const RANCH_MARKET_SWITCH_KEYS = ['ranch_market_organic_poop', 'ranch_market_organic_pinecone'] as const;
+
+/** 旧配置的总开关只填充缺失的新字段，已明确设置的独立开关优先。 */
+export function migrateRanchMarketAutomation(input: Record<string, any>): Record<string, any> {
+    const result = { ...input };
+    if (typeof result.ranch_market_organic === 'boolean') {
+        for (const key of RANCH_MARKET_SWITCH_KEYS) {
+            if (result[key] === undefined) result[key] = result.ranch_market_organic;
+        }
+    }
+    return result;
+}
+
+export function isRanchMarketEnabled(input: Partial<RanchAutomationConfig>): boolean {
+    return RANCH_MARKET_SWITCH_KEYS.some(key => (input[key] ?? input.ranch_market_organic) === true);
 }
