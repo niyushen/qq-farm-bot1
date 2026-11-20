@@ -149,6 +149,8 @@ let itemInfoConfig: ItemInfo[] | null = null;
 const itemInfoMap = new Map<number, ItemInfo>();
 const seedItemMap = new Map<number, ItemInfo>();
 const shopGoodsMap = new Map(shopGoodsConfig.map(goods => [goods.id, goods]));
+// 商城在售物品 ID：种子出现在商城中即视为「可直接购买」
+const purchasableItemIds = new Set<number>(shopGoodsConfig.map(goods => Number(goods.item_id) || 0).filter(Boolean));
 const itemImageIds = new Set<number>();
 const iconImageIds = new Map<string, number>();
 const assetImageIds = new Map<string, number>();
@@ -605,6 +607,22 @@ function getShopGoodsById(goodsId: number) {
 }
 
 /**
+ * 该果实是否可由商城「可直接购买的种子」种出。
+ * 同一果实存在多个植物变体时，任一变体的种子在商城在售即视为可直接购买
+ * （例如白萝卜同时存在 seed 20002 在售与 seed 29999 不在售两个变体）。
+ */
+function isFruitSeedPurchasable(fruitId: number): boolean {
+    const fid = Number(fruitId) || 0;
+    if (!fid) return false;
+    for (const plant of plantMap.values()) {
+        if (Number(plant.fruit && plant.fruit.id) !== fid) continue;
+        const seedId = Number(plant.seed_id) || 0;
+        if (seedId && purchasableItemIds.has(seedId)) return true;
+    }
+    return false;
+}
+
+/**
  * 解析 sells 字段，格式为 "货币ID:价格" 或 "货币ID1:价格1;货币ID2:价格2"
  * 返回 [{ currencyId, price }, ...]
  */
@@ -871,6 +889,7 @@ module.exports = {
     getPlantByFruitId,
     getItemById,
     getShopGoodsById,
+    isFruitSeedPurchasable,
     getItemImageById,
     getSeedPrice,
     getFruitPrice,

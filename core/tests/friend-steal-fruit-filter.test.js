@@ -18,9 +18,13 @@ const PLANT = {
   decoration: 1028001,  // 哈哈南瓜塔 → 装扮果实
   mandala: 1020116,     // 曼陀罗华 → 图鉴标普通果实，普通商城种子，按普通果实处理
   lingzhi: 1020202,     // 金边灵芝 → 图鉴标普通果实，普通商城种子，按普通果实处理
-  guava: 1020529,       // 森野芭乐 → 活动限制作物（rarity=3）
-  rare: 1020224,        // 昙花 → 稀有珍品（rarity=3，无活动标记）
-  feed: 1020040,        // 牧草 → 普通饲料作物（rarity=1，仅 jumps 特殊）
+  guava: 1020529,       // 森野芭乐 → 活动限制作物（种子不可直接购买）
+  rare: 1020224,        // 昙花 → 稀有珍品（种子不可直接购买）
+  feed: 1020040,        // 牧草 → 普通饲料作物（种子在牧场商城在售）
+  redPacket: 1021542,   // 新春红包 → 种子有 sells 价但不在商城，其它途径获取
+  fortune: 1020329,     // 发财红包 → 同上
+  pumpkin: 2029998,     // 哈哈南瓜 → 种子不在商城
+  normalShop: 1020002,  // 白萝卜（商城种子变体 seed=20002）
 };
 
 function land(id, plantId) {
@@ -50,14 +54,25 @@ test('图鉴类别按 fruit.id 正确识别四类果实', () => {
   assert.equal(getFruitTypeByPlantId(99999999), '', '未知植物返回空类别');
 });
 
-test('活动限制作物与稀有珍品（rarity>=2）按活动果实处理', () => {
+test('活动限制作物与稀有珍品（种子不可直接购买）按活动果实处理', () => {
   assert.equal(getFruitTypeByPlantId(PLANT.guava), '活动果实');
-  assert.equal(getFruitTypeByPlantId(PLANT.rare), '活动果实', 'rarity>=2 的稀有珍品按活动果实处理');
+  assert.equal(getFruitTypeByPlantId(PLANT.rare), '活动果实', '种子不可直接购买的稀有珍品按活动果实处理');
+});
+
+test('其它途径获取的种子一律按活动果实处理（红包/哈哈南瓜）', () => {
+  assert.equal(getFruitTypeByPlantId(PLANT.redPacket), '活动果实', '有 sells 价但不在商城出售的种子仍属其它途径');
+  assert.equal(getFruitTypeByPlantId(PLANT.fortune), '活动果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.pumpkin), '活动果实');
+});
+
+test('同一果实存在商城在售种子的变体时按普通果实处理', () => {
+  assert.equal(getFruitTypeByPlantId(PLANT.normalShop), '普通果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.normal), '普通果实', '白萝卜另一变体 seed=29999 虽不在商城，但同果实 seed=20002 在售');
 });
 
 test('普通作物、饲料作物与商城作物仍为普通果实，黄金/装扮果实不被并入活动果实', () => {
   assert.equal(getFruitTypeByPlantId(PLANT.normal), '普通果实');
-  assert.equal(getFruitTypeByPlantId(PLANT.feed), '普通果实', '牧草不应因 jumps 特殊被误判为活动果实');
+  assert.equal(getFruitTypeByPlantId(PLANT.feed), '普通果实', '牧草种子在牧场商城有售，仍属普通果实');
   assert.equal(getFruitTypeByPlantId(PLANT.mandala), '普通果实');
   assert.equal(getFruitTypeByPlantId(PLANT.lingzhi), '普通果实');
   assert.equal(getFruitTypeByPlantId(PLANT.golden), '黄金果实');

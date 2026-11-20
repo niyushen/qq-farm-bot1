@@ -3,7 +3,10 @@
  */
 
 const { PlantPhase } = require('../../config/config');
-const { getPlantName, getPlantById, getIllustratedTypeByParam } = require('../../config/gameConfig');
+const {
+    getPlantName, getPlantById, getIllustratedTypeByParam,
+    isFruitSeedPurchasable, getItemById, getItemImageById,
+} = require('../../config/gameConfig');
 const {
     isAutomationOn,
     getFriendQuietHours,
@@ -47,7 +50,6 @@ const {
     removeKnownFriendGid,
 } = require('./gid-manager');
 const { PROTECT_DOG_ID, getFriendDogState, getFriendDogId } = require('./pet-cache');
-const { getItemById, getItemImageById } = require('../../config/gameConfig');
 
 // 延迟引用 scheduler 模块，避免循环依赖
 let _scheduler: any = null;
@@ -311,8 +313,7 @@ function getStealFruitFilter(accountId: any): Pick<AnalyzeOptions, 'stealActivit
  *
  * "活动果实"口径（只偷活动果实开关）：
  *   1. 图鉴明确标为活动果实的
- *   2. 图鉴标为普通果实、但属于活动限制作物或稀有珍品（rarity>=2，含森野/奶茶等系列活动作物）
- *   3. 没有普通种植种子、或有活动出售条件的作物
+ *   2. 种子无法从商城直接购买的（活动兑换、限时、稀有等其它途径获取）
  * 黄金果实/装扮果实保留原类别，由"只偷黄金果实"开关独立控制，不并入活动果实。
  */
 export function getFruitTypeByPlantId(plantId: number): string {
@@ -325,11 +326,8 @@ export function getFruitTypeByPlantId(plantId: number): string {
         return illustratedType;
     }
 
-    const itemCfg: any = getItemById(fruitId);
-    const rarity: number = itemCfg ? toNum(itemCfg.rarity) : 0;
-    const saleCond: string = String((itemCfg && itemCfg.sell_cond) || '');
-    const seedId: number = toNum(plantCfg.seed_id);
-    if (rarity >= 2 || /活动/.test(saleCond) || !seedId) return '活动果实';
+    // 除可直接购买种子的作物外，其它途径获取的种子一律按活动果实处理
+    if (!isFruitSeedPurchasable(fruitId)) return '活动果实';
 
     return illustratedType || '普通果实';
 }
