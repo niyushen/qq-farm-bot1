@@ -245,7 +245,17 @@ QQ 扫码登录依赖外部 [qq-miniapp-auth](https://github.com/liyangpengs/qq-
 | `PORT` | `3007` | Docker Compose | 宿主机映射端口，从根目录 `.env` 读取 |
 | `TZ` | `Asia/Shanghai` | Docker Compose | 容器时区 |
 | `NODE_ENV` | `production` | Docker | Compose 当前固定为生产环境 |
-| `LOG_LEVEL` | `info` | 后端 | 服务端日志级别 |
+| `LOG_LEVEL` | `info` | 后端 | 服务端日志级别（控制台与落盘共用） |
+| `FARM_LOG_LEVEL` | `info` | 后端 | 日志落盘级别，低于该级别不写文件 |
+| `FARM_LOG_MAX_FILE_SIZE_MB` | `20` | 后端 | 单个日志文件大小上限，超过后按序号切分 |
+| `FARM_LOG_RETENTION_DAYS` | `7` | 后端 | 日志保留天数，超过后定时删除 |
+| `FARM_LOG_MAX_TOTAL_SIZE_MB` | `200` | 后端 | 日志目录总大小上限，超出按最旧优先删除 |
+| `FARM_LOG_CLEANUP_INTERVAL_MINUTES` | `60` | 后端 | 日志定时清理间隔（分钟） |
+| `FARM_LOG_DAILY_SPLIT` | `1` | 后端 | 设为 `0` 关闭按天分割 |
+| `FARM_STDOUT_LOG_MAX_LINES` | `20000` | 后端 | `app_dev.log` 保留的最大行数 |
+| `FARM_STDOUT_LOG_TRIM_INTERVAL` | `300` | 后端 | `app_dev.log` 裁剪间隔（秒） |
+
+日志文件按天分割存放于 `data/logs/`，超过保留期或总容量上限后自动清理，详见[日志文件分割与定时清理](docs/log-rotation.md)。
 
 管理员账号不通过环境变量初始化。首次运行会自动创建 `admin` / `admin`，之后的管理员凭据保存在数据目录的 `admin.json` 中。项目不提供注册或新增管理员功能。
 
@@ -382,6 +392,7 @@ pnpm -C core exec tsx ../tools/audit-capture-compatibility.js <capture-dir>
 - [工具脚本](docs/tools.md)
 - [网络并发模型](docs/network-concurrency.md)
 - [日志空间拆分与配额](docs/log-space.md)
+- [日志文件分割与定时清理](docs/log-rotation.md)
 - [TSDK Node.js 运行约定](docs/tsdk-runtime.md)
 - [配置存储、迁移与缓存](docs/config-storage.md)
 - [2026-10-22 游戏版本与资源对齐](docs/game-update-20261022.md)

@@ -168,6 +168,28 @@ if [[ ! -f "$CORE_OUTPUT" ]]; then
 fi
 
 : > "$LOG_FILE"
+
+# app_dev.log 是进程 stdout/stderr 的重定向目标，长跑会无限增长。
+# 启动一个后台裁剪循环，按行边界保留尾部若干行。
+# 用「清空 + 重写」而非 mv，保证 inode 不变 —— node 持有的 append fd
+# 仍指向同一个文件，不会出现写入已删除 inode 导致日志丢失。
+LOG_TRIM_MAX_LINES="${FARM_STDOUT_LOG_MAX_LINES:-20000}"
+LOG_TRIM_INTERVAL="${FARM_STDOUT_LOG_TRIM_INTERVAL:-300}"
+(
+    set +e
+    while sleep "$LOG_TRIM_INTERVAL"; do
+        [[ -f "$LOG_FILE" ]] || continue
+        line_count="$(wc -l < "$LOG_FILE" 2>/dev/null || echo 0)"
+        [[ "$line_count" -gt "$LOG_TRIM_MAX_LINES" ]] || continue
+        tmp_file="${LOG_FILE}.trim.$$"
+        if tail -n "$LOG_TRIM_MAX_LINES" "$LOG_FILE" > "$tmp_file" 2>/dev/null; then
+            cat "$tmp_file" > "$LOG_FILE" 2>/dev/null || true
+        fi
+        rm -f -- "$tmp_file"
+    done
+) >/dev/null 2>&1 &
+disown 2>/dev/null || true
+
 if command -v setsid >/dev/null 2>&1; then
     nohup setsid node "$SCRIPT_DIR/core/client.js" >> "$LOG_FILE" 2>&1 &
 else

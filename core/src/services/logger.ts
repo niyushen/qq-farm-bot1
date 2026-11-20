@@ -1,7 +1,27 @@
 export {};
+/**
+ * 服务端日志服务
+ *
+ * 落盘策略（替代 winston 内建 File transport）：
+ * - 按天分文件：data/logs/combined-YYYYMMDD-<pid>.log
+ * - 单文件超过上限后按序号切分：....1.log / ....2.log
+ * - 定时清理：超过保留期删除 + 目录总容量超限时按最旧优先删除
+ *
+ * 为什么不用 winston 内建的 maxsize/maxFiles：
+ * 本项目是多进程模型（主进程 + 每账号一个 worker 子进程），所有进程写同一目录。
+ * winston 的轮转依赖 rename/unlink，多进程并发时会出现竞态导致日志丢失或文件错乱。
+ * 详见 core/src/services/log-file-writer.ts 顶部说明。
+ *
+ * 控制台输出仍由 winston Console transport 承担（保留彩色格式化），
+ * 文件落盘则由自研写入器独立完成，两者互不影响。
+ */
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { ensureDataDir } = require('../config/runtime-paths');
+const { LOG_SYSTEM_CONFIG, LOG_FILE_SIZE_BYTES, LOG_TOTAL_SIZE_BYTES, LOG_CLEANUP_INTERVAL_MS } = require('../config/log-system');
+const { LogFileWriter } = require('./log-file-writer');
+const { LogCleaner } = require('./log-cleaner');
 
 let winston: any = null;
 try {
@@ -51,24 +71,84 @@ function ensureFallbackLogDir(): string {
     return fallbackLogDir;
 }
 
-function appendFallbackLog(level: string, moduleName: string, message: string, meta: any): void {
-    try {
-        const dir = ensureFallbackLogDir();
-        const payload = {
-            ts: new Date().toISOString(),
-            level,
-            module: moduleName,
-            message: redactString(message),
-            meta: sanitizeMeta(meta || {}),
-        };
-        const line = `${JSON.stringify(payload)}\n`;
-        fs.appendFileSync(path.join(dir, 'combined.log'), line, 'utf8');
-        if (level === 'error') {
-            fs.appendFileSync(path.join(dir, 'error.log'), line, 'utf8');
-        }
-    } catch {
-        // ignore file write errors in fallback mode
+/** 日志级别排序，低于当前级别的日志不落盘 */
+const LEVEL_WEIGHT: Record<string, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+
+/** 写入器与清理器的单例（按进程维度） */
+let combinedWriter: any = null;
+let errorWriter: any = null;
+let cleaner: any = null;
+
+function getWriters(): { combined: any; error: any } {
+    if (combinedWriter && errorWriter) return { combined: combinedWriter, error: errorWriter };
+    const dir = ensureFallbackLogDir();
+    const maxFileSize = LOG_FILE_SIZE_BYTES;
+    const dailySplit = LOG_SYSTEM_CONFIG.dailySplitEnabled !== false;
+    combinedWriter = new LogFileWriter({ dir, baseName: 'combined', maxFileSize, dailySplit });
+    errorWriter = new LogFileWriter({ dir, baseName: 'error', maxFileSize, dailySplit });
+    return { combined: combinedWriter, error: errorWriter };
+}
+
+/**
+ * 把日志条目序列化为一行 JSON。
+ * 字段顺序与旧的 winston json() 输出一致（app / level / message / module / timestamp + 平铺 meta），
+ * 保证既有日志分析工具与 grep 规则继续可用。
+ *
+ * module 优先级：显式 meta.module 优先于模块 logger 名，
+ * 与 winston child logger 的合并语义一致（child 默认 module 会被显式 meta 覆盖）。
+ */
+function serializeLogLine(level: string, moduleName: string, message: string, meta: any): string {
+    const safeMeta = sanitizeMeta(meta || {});
+    const explicitModule = safeMeta && typeof safeMeta.module === 'string' && safeMeta.module
+        ? String(safeMeta.module)
+        : '';
+    const payload: Record<string, any> = {
+        app: 'qq-farm-bot',
+        level,
+        message: redactString(message),
+        module: explicitModule || moduleName,
+    };
+    for (const [k, v] of Object.entries(safeMeta)) {
+        if (k === 'level' || k === 'message' || k === 'module' || k === 'timestamp' || k === 'app') continue;
+        payload[k] = v;
     }
+    payload.timestamp = new Date().toISOString();
+    return JSON.stringify(payload);
+}
+
+/**
+ * 落盘一条日志。error 级别同时写入 error.log 与 combined.log。
+ */
+function writeToFile(level: string, moduleName: string, message: string, meta: any): void {
+    const threshold = LEVEL_WEIGHT[LOG_SYSTEM_CONFIG.level] ?? LEVEL_WEIGHT.info;
+    if ((LEVEL_WEIGHT[level] ?? LEVEL_WEIGHT.info) < threshold) return;
+
+    try {
+        const { combined, error } = getWriters();
+        const line = serializeLogLine(level, moduleName, message, meta);
+        combined.write(line);
+        if (level === 'error') error.write(line);
+    } catch {
+        // 落盘失败不影响业务流程
+    }
+}
+
+/** 启动定时清理器（每个进程启动一份，多进程并发清理已做安全处理） */
+function ensureCleanerStarted(): void {
+    if (cleaner) return;
+    const dir = ensureFallbackLogDir();
+    cleaner = new LogCleaner({
+        dir,
+        baseNames: ['combined', 'error'],
+        retentionDays: LOG_SYSTEM_CONFIG.retentionDays,
+        maxTotalSize: LOG_TOTAL_SIZE_BYTES,
+        intervalMs: LOG_CLEANUP_INTERVAL_MS,
+        getActiveFiles: () => {
+            const writers = getWriters();
+            return [writers.combined.activeFilePath, writers.error.activeFilePath].filter(Boolean);
+        },
+    });
+    cleaner.start();
 }
 
 interface ModuleLogger {
@@ -83,7 +163,7 @@ function createConsoleFallback(moduleName: string): ModuleLogger {
         const ts = new Date().toISOString();
         const safeMsg = redactString(message);
         const safeMeta = sanitizeMeta(meta);
-        appendFallbackLog(level, moduleName, safeMsg, safeMeta);
+        writeToFile(level, moduleName, safeMsg, safeMeta);
         if (safeMeta && Object.keys(safeMeta).length > 0) {
             console.warn(`[${ts}] [${level}] [${moduleName}] ${safeMsg} ${JSON.stringify(safeMeta)}`);
         } else {
@@ -108,12 +188,8 @@ function getRootLogger(): any {
         return rootLogger;
     }
 
-    const dataDir = ensureDataDir();
-    const logDir = path.join(dataDir, 'logs');
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-
-    const level = String(process.env.LOG_LEVEL || 'info').toLowerCase();
-    const { combine, timestamp, errors, json, colorize, printf } = winston.format;
+    const level = String(LOG_SYSTEM_CONFIG.level || process.env.LOG_LEVEL || 'info').toLowerCase();
+    const { combine, timestamp, errors, colorize, printf } = winston.format;
 
     rootLogger = winston.createLogger({
         level,
@@ -139,17 +215,11 @@ function getRootLogger(): any {
                     }),
                 ),
             }),
-            new winston.transports.File({
-                filename: path.join(logDir, 'combined.log'),
-                format: combine(timestamp(), errors({ stack: true }), json()),
-            }),
-            new winston.transports.File({
-                filename: path.join(logDir, 'error.log'),
-                level: 'error',
-                format: combine(timestamp(), errors({ stack: true }), json()),
-            }),
         ],
     });
+
+    // 文件落盘由自研写入器独立承担（按天分割 + 定时清理），见文件头说明
+    ensureCleanerStarted();
 
     return rootLogger;
 }
@@ -160,24 +230,40 @@ function createModuleLogger(moduleName = 'app'): ModuleLogger {
     if (!root) return createConsoleFallback(moduleTag);
 
     const child = root.child({ module: moduleTag });
+    const emit = (level: string, message: string, meta: any) => {
+        const safeMsg = redactString(message);
+        const safeMeta = sanitizeMeta(meta);
+        child[level](safeMsg, safeMeta);
+        writeToFile(level, moduleTag, safeMsg, safeMeta);
+    };
     return {
         info(message: string, meta = {}) {
-            child.info(redactString(message), sanitizeMeta(meta));
+            emit('info', message, meta);
         },
         warn(message: string, meta = {}) {
-            child.warn(redactString(message), sanitizeMeta(meta));
+            emit('warn', message, meta);
         },
         error(message: string, meta = {}) {
-            child.error(redactString(message), sanitizeMeta(meta));
+            emit('error', message, meta);
         },
         debug(message: string, meta = {}) {
-            child.debug(redactString(message), sanitizeMeta(meta));
+            emit('debug', message, meta);
         },
     };
+}
+
+/** 优雅退出前刷新写入队列（供测试与停机流程使用） */
+async function flushLogs(): Promise<void> {
+    if (!combinedWriter && !errorWriter) return;
+    await Promise.all([
+        combinedWriter ? combinedWriter.flush() : Promise.resolve(),
+        errorWriter ? errorWriter.flush() : Promise.resolve(),
+    ]);
 }
 
 module.exports = {
     createModuleLogger,
     sanitizeMeta,
     redactString,
+    flushLogs,
 };
