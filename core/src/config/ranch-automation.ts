@@ -18,6 +18,8 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_fill_cans: false,
     // 普通罐头喂养：消耗罐头桶时长，默认关闭由用户按需开启
     ranch_feed_normal: false,
+    // 普通罐头使用阶段：'any' 任意可喂养阶段 / 'longest' 仅最长生长阶段（上游 PR #166）
+    ranch_feed_normal_stage: 'longest' as 'any' | 'longest',
     // 有机罐头喂养：消耗有机罐头桶时长，默认关闭由用户按需开启
     ranch_feed_organic: false,
     ranch_clean: true,
@@ -44,6 +46,10 @@ export const RANCH_SWITCH_KEYS = Object.keys(RANCH_AUTOMATION_DEFAULTS).filter(k
 export const RANCH_ANIMAL_OPTIONS = [...animalMap.values()].filter(animal => animal.enable_flag).map(animal => ({ value: animal.id, label: animal.name, kind: animal.husbandry_type }));
 
 export function normalizeRanchSetting(key: string, value: unknown): boolean | number | string | number[] {
+    if (key === 'ranch_feed_normal_stage') {
+        if (value === 'any' || value === 'longest') return value;
+        throw Object.assign(new Error('请选择有效的普通罐头使用阶段'), { code: 'INVALID_CONFIG' });
+    }
     if (key === 'ranch_strategy' || key === 'ranch_bag_fallback') {
         const allowed = key === 'ranch_strategy' ? ['level', 'preferred', 'bag_priority'] : ['level', 'preferred'];
         if (!allowed.includes(String(value))) throw Object.assign(new Error('请选择有效的养殖策略'), { code: 'INVALID_CONFIG' });
