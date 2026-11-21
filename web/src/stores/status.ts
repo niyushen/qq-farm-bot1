@@ -2,7 +2,7 @@ import type { Socket } from 'socket.io-client'
 import { useStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { io } from 'socket.io-client'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
 import { useAccountStore } from '@/stores/account'
 import { LOG_SPACE_RANCH, resolveEntrySpace } from '@/utils/log-space'
@@ -67,6 +67,17 @@ export const useStatusStore = defineStore('status', () => {
       && String(status.value?.accountId || '') === accountId
       && !!status.value?.connection?.connected
   })
+
+  // 服务重启/自动重登后，Worker 恢复连接，但账号列表的 running 字段只在
+  // 侧边栏挂载时拉过一次，会一直停留在旧的 false。实时状态由离线转在线时
+  // 同步刷新账号列表，使依赖 running 的页面也自动切回在线。
+  watch(
+    () => status.value?.connection?.connected === true,
+    (connected, wasConnected) => {
+      if (connected && !wasConnected)
+        void accountStore.fetchAccounts()
+    },
+  )
 
   let socket: Socket | null = null
   let statusRequestSequence = 0

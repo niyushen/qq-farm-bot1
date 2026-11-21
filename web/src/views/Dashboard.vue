@@ -22,9 +22,11 @@ const {
   diamondBalance,
   farmLogs: statusLogs,
   realtimeConnected,
+  currentAccountConnected,
 } = storeToRefs(statusStore)
 const { currentAccountId, currentAccount } = storeToRefs(accountStore)
-const isOnline = computed(() => !!currentAccount.value?.running && status.value?.connection?.connected === true)
+// 在线状态以实时状态为准：账号列表的 running 字段可能还是重启前的旧值
+const isOnline = computed(() => currentAccountConnected.value)
 const { dashboardItems } = storeToRefs(bagStore)
 const logContainer = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
