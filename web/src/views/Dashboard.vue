@@ -1000,7 +1000,7 @@ useIntervalFn(updateCountdowns, 1000)
   font-variant-numeric: tabular-nums;
 }
 
-/* 一键重连按钮：紧贴微信昵称，窄屏下只保留图标 */
+/* 一键重连按钮：任何屏宽下均完整显示图标与文案 */
 .ov-reconnect {
   flex: none;
   gap: 4px;
@@ -1016,13 +1016,14 @@ useIntervalFn(updateCountdowns, 1000)
   gap: 4px;
 }
 
+.ov-reconnect__label {
+  flex: none;
+  white-space: nowrap;
+}
+
 @media (max-width: 420px) {
   .ov-reconnect {
     padding: 0 7px;
-  }
-
-  .ov-reconnect__label {
-    display: none;
   }
 }
 
