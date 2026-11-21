@@ -297,6 +297,8 @@ const connectionStatus = computed(() => {
 const navItems = computed(() => {
   return getSpaceMenu(route.meta.gameSpace === 'ranch')
     .filter(item => !item.meta?.superOnly || userStore.isSuperAdmin)
+    // 排行榜在后台设为「仅超级管理员可见」时，对普通用户隐藏入口
+    .filter(item => item.name !== 'coin-rank' || userStore.canViewCoinRank)
     // 管理后台入口已收敛到「设置」页签与用户下拉菜单，左侧导航不再展示
     .filter(item => item.name !== 'admin-panel')
     .map(item => ({

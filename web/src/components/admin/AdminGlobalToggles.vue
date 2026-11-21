@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import api from '@/api'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
+import { useUserStore } from '@/stores/user'
 
 const toast = useToastStore()
 
@@ -50,6 +51,60 @@ async function toggleVisibility(value: boolean | undefined) {
   }
   finally {
     visibilitySaving.value = false
+  }
+}
+
+// 排行榜数据可见范围：默认全员可见；开启后仅超级管理员可见
+const coinRankSuperOnly = ref(false)
+const coinRankLoaded = ref(false)
+const coinRankSaving = ref(false)
+
+async function loadCoinRankVisibility() {
+  try {
+    const res = await api.get('/api/admin/coin-rank-visibility')
+    if (res.data?.ok)
+      coinRankSuperOnly.value = res.data.data?.visibility === 'super_admin'
+    coinRankLoaded.value = true
+  }
+  catch {
+    toast.error('读取排行榜可见范围失败')
+  }
+}
+
+async function rollbackCoinRank(target: boolean) {
+  coinRankSuperOnly.value = target
+  await nextTick()
+  coinRankSuperOnly.value = !target
+}
+
+async function toggleCoinRank(value: boolean | undefined) {
+  const superOnly = value === true
+  if (coinRankSaving.value)
+    return
+  coinRankSaving.value = true
+  try {
+    const res = await api.post('/api/admin/coin-rank-visibility', {
+      visibility: superOnly ? 'super_admin' : 'all',
+    })
+    if (res.data?.ok) {
+      coinRankSuperOnly.value = res.data.data?.visibility === 'super_admin'
+      // 同步本地用户信息，立即驱动菜单与路由权限
+      const userStore = useUserStore()
+      if (userStore.userInfo)
+        userStore.userInfo.coinRankVisibility = res.data.data?.visibility || 'all'
+      toast.success(coinRankSuperOnly.value ? '排行榜已设为仅超级管理员可见' : '排行榜已设为全员可见')
+    }
+    else {
+      await rollbackCoinRank(superOnly)
+      toast.error(res.data?.error || '保存失败')
+    }
+  }
+  catch {
+    await rollbackCoinRank(superOnly)
+    toast.error('保存失败')
+  }
+  finally {
+    coinRankSaving.value = false
   }
 }
 
@@ -107,6 +162,7 @@ async function toggleFreeCard(value: boolean | undefined) {
 
 onMounted(() => {
   loadVisibility()
+  loadCoinRankVisibility()
   loadFreeCardStatus()
 })
 </script>
@@ -133,6 +189,32 @@ onMounted(() => {
         />
         <span v-if="visibilitySaving" class="text-xs text-gray-400">保存中…</span>
         <span v-if="visibilityLoaded" class="text-xs text-gray-500 dark:text-gray-400">{{ usersSeeAllAccounts ? '当前：可见全部账号' : '当前：仅可见自己的账号' }}</span>
+      </div>
+    </section>
+
+    <!-- 排行榜数据可见范围 -->
+    <section class="farm-card rounded-lg p-4">
+      <div class="mb-1 flex items-center gap-2">
+        <div class="i-carbon-trophy text-lg" style="color: var(--theme-primary);" />
+        <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+          排行榜数据可见范围
+        </h4>
+        <span v-if="!coinRankLoaded" class="text-xs text-gray-400">读取中…</span>
+      </div>
+      <p class="mb-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+        控制「今日金币增加排行榜」对哪些用户开放。默认全员可见，所有登录用户都能查看完整榜单；开启后仅超级管理员可访问，普通用户将看不到入口与数据。该设置独立于账号列表可见性。
+      </p>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <BaseSwitch
+          :model-value="coinRankSuperOnly"
+          label="仅超级管理员可见"
+          :disabled="coinRankSaving || !coinRankLoaded"
+          @update:model-value="toggleCoinRank"
+        />
+        <span v-if="coinRankSaving" class="text-xs text-gray-400">保存中…</span>
+        <span v-if="coinRankLoaded" class="text-xs text-gray-500 dark:text-gray-400">
+          当前：<b :class="coinRankSuperOnly ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'">{{ coinRankSuperOnly ? '仅超级管理员可见' : '全员可见' }}</b>
+        </span>
       </div>
     </section>
 

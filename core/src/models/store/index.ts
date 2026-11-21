@@ -60,6 +60,8 @@ module.exports = {
     setOfflineReminder: globalConfig.setOfflineReminder,
     getUsersSeeAllAccounts: globalConfig.getUsersSeeAllAccounts,
     setUsersSeeAllAccounts: globalConfig.setUsersSeeAllAccounts,
+    getCoinRankVisibility: globalConfig.getCoinRankVisibility,
+    setCoinRankVisibility: globalConfig.setCoinRankVisibility,
 
     // Accounts
     getAccounts: accounts.getAccounts,

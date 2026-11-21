@@ -17,6 +17,7 @@ const { createAdminContext } = require('./context');
 const { mountAuthRoutes } = require('./auth-routes');
 const { mountAccountRoutes } = require('./account-routes');
 const { mountFarmRoutes } = require('./farm-routes');
+const { mountCoinRankRoutes } = require('./coin-rank-routes');
 const { mountFriendRoutes } = require('./friend-routes');
 const { mountActivityCenterRoutes } = require('./activity-center-routes');
 const { mountCommerceRoutes } = require('./commerce-routes');
@@ -87,6 +88,7 @@ function startAdminServer(dataProvider: any): void {
     mountQqLoginRoutes(app, ctx);
     mountCaptureRoutes(app, ctx);
     mountFarmRoutes(app, ctx);
+    mountCoinRankRoutes(app, ctx);
     mountFriendRoutes(app, ctx);
     mountAccountRoutes(app, ctx);
     mountActivityCenterRoutes(app, ctx);

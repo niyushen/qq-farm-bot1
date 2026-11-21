@@ -571,6 +571,8 @@ const globalConfig: GlobalConfig = {
     userOfflineReminders: {},
     systemConfig: null,
     usersSeeAllAccounts: false,
+    // 排行榜默认全员可见
+    coinRankVisibility: 'all',
 };
 
 function resolveAccountId(accountId: unknown): string {
@@ -613,6 +615,9 @@ function loadGlobalConfig(): void {
 
             // 账号可见性开关（默认关闭）
             globalConfig.usersSeeAllAccounts = data.usersSeeAllAccounts === true;
+
+            // 排行榜可见范围（默认全员可见）
+            globalConfig.coinRankVisibility = data.coinRankVisibility === 'super_admin' ? 'super_admin' : 'all';
 
             if (data.loginSettings && typeof data.loginSettings === 'object') {
                 globalConfig.loginSettings = {

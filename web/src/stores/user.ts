@@ -43,6 +43,8 @@ export interface User {
   createdBy: string
   lastLoginAt: number | null
   lastLoginIp: string
+  /** 排行榜数据可见范围：all=全员可见，super_admin=仅超级管理员可见 */
+  coinRankVisibility?: 'all' | 'super_admin'
   accountCount?: number
   accountRemaining?: number
 }
@@ -195,6 +197,9 @@ export const useUserStore = defineStore('user', () => {
   // admin 角色已移除：isAdmin 等同于超级管理员（保留名称以免改动大量引用）
   const isAdmin = computed(() => userInfo.value?.role === 'super_admin')
   const isSuperAdmin = computed(() => userInfo.value?.role === 'super_admin')
+  // 排行榜可见范围：默认全员可见；仅当显式设为 super_admin 且当前非超管时不可见
+  const coinRankVisibility = computed(() => userInfo.value?.coinRankVisibility || 'all')
+  const canViewCoinRank = computed(() => isSuperAdmin.value || coinRankVisibility.value !== 'super_admin')
   const username = computed(() => userInfo.value?.username || '')
   const avatar = computed(() => userInfo.value?.avatar || '')
   const role = computed<UserRole>(() => userInfo.value?.role || 'user')
@@ -575,6 +580,8 @@ export const useUserStore = defineStore('user', () => {
     isLoggedIn,
     isAdmin,
     isSuperAdmin,
+    coinRankVisibility,
+    canViewCoinRank,
     username,
     avatar,
     role,

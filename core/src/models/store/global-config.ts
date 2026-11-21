@@ -178,6 +178,16 @@ function setUsersSeeAllAccounts(enabled: unknown): boolean {
     return getUsersSeeAllAccounts();
 }
 
+function getCoinRankVisibility(): 'all' | 'super_admin' {
+    return globalConfig.coinRankVisibility === 'super_admin' ? 'super_admin' : 'all';
+}
+
+function setCoinRankVisibility(value: unknown): 'all' | 'super_admin' {
+    const next = value === 'super_admin' ? 'super_admin' : 'all';
+    saveGlobalConfig({ coinRankVisibility: next });
+    return getCoinRankVisibility();
+}
+
 function getSystemConfig(): SystemConfig | null {
     return globalConfig.systemConfig ? { ...globalConfig.systemConfig } : null;
 }
@@ -263,6 +273,8 @@ module.exports = {
     setOfflineReminder,
     getUsersSeeAllAccounts,
     setUsersSeeAllAccounts,
+    getCoinRankVisibility,
+    setCoinRankVisibility,
     getSystemConfig,
     setSystemConfig,
 };

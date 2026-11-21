@@ -32,11 +32,16 @@ async function ensureTokenValid() {
       validatedToken = token
       // validate 返回最新角色，同步进本地用户信息（避免本地缓存角色过期导致误判）
       const role = res.data?.data?.role
-      if (role) {
+      const coinRankVisibility = res.data?.data?.coinRankVisibility
+      if (role || coinRankVisibility) {
         try {
           const userStore = useUserStore()
-          if (userStore.userInfo && userStore.userInfo.role !== role)
-            userStore.userInfo.role = role
+          if (userStore.userInfo) {
+            if (role && userStore.userInfo.role !== role)
+              userStore.userInfo.role = role
+            if (coinRankVisibility)
+              userStore.userInfo.coinRankVisibility = coinRankVisibility
+          }
         }
         catch {
           // pinia 尚未激活时忽略（守卫内会再取一次）
@@ -110,6 +115,18 @@ router.beforeEach(async (to, _from) => {
     try {
       const userStore = useUserStore()
       if (!userStore.isSuperAdmin)
+        return { name: 'dashboard' }
+    }
+    catch {
+      return { name: 'dashboard' }
+    }
+  }
+
+  // 排行榜可见范围：管理员在后台设为「仅超级管理员」时，普通用户越权回概览
+  if (to.name === 'coin-rank') {
+    try {
+      const userStore = useUserStore()
+      if (!userStore.canViewCoinRank)
         return { name: 'dashboard' }
     }
     catch {

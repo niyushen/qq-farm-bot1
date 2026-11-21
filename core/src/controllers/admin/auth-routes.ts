@@ -7,6 +7,7 @@ const { getRuntimeConfig } = require('../../config/config');
 const { getSchedulerRegistrySnapshot } = require('../../services/scheduler');
 const { createModuleLogger } = require('../../services/logger');
 const userStore = require('../../models/user-store');
+const store = require('../../models/store');
 const { USER_SYSTEM_CONFIG, USER_ROLES, isElevatedRole } = require('../../config/user-system');
 const inviteService = require('../../services/invite-rewards');
 
@@ -484,6 +485,7 @@ function mountAuthRoutes(app: Application, ctx: AdminContext): void {
                 valid: true,
                 role: session.role,
                 username: session.username,
+                coinRankVisibility: store.getCoinRankVisibility(),
             },
         });
     });
@@ -544,6 +546,7 @@ function mountAuthRoutes(app: Application, ctx: AdminContext): void {
             data: {
                 username: currentUser.username,
                 role: currentUser.role,
+                coinRankVisibility: store.getCoinRankVisibility(),
                 nick: profile?.nick || '',
                 email: profile?.email || '',
                 card: subscription,

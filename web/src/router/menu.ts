@@ -57,6 +57,13 @@ export const menuRoutes: MenuItem[] = [
     component: () => import('@/views/Analytics.vue'),
   },
   {
+    path: 'coin-rank',
+    name: 'coin-rank',
+    label: '排行榜',
+    icon: 'i-carbon-trophy',
+    component: () => import('@/views/CoinRank.vue'),
+  },
+  {
     path: 'solar-calendar',
     name: 'solar-calendar',
     label: '节令日历',

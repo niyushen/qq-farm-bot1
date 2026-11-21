@@ -180,4 +180,6 @@ export interface GlobalConfig {
   systemConfig: SystemConfig | null;
   /** 普通用户是否可见全部农场账号（默认关闭：仅可见自己添加的账号） */
   usersSeeAllAccounts: boolean;
+  /** 排行榜数据可见范围：all=全员可见（默认），super_admin=仅超级管理员可见 */
+  coinRankVisibility: 'all' | 'super_admin';
 }
