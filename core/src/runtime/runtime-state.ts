@@ -200,6 +200,7 @@ function createRuntimeState(options: RuntimeStateOptions) {
             sessionGoldBeanGained: 0,
             todayExpGained: 0,
             todayGoldGained: 0,
+            todayGoldEarned: 0,
             todayCouponGained: 0,
             todayGoldBeanGained: 0,
             lastExpGain: 0,

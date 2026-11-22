@@ -413,6 +413,14 @@ function formatPlainNumber(value: unknown) {
   return Number.isFinite(num) ? num.toLocaleString('zh-CN') : '0'
 }
 
+// 今日金币收入：只计增加量、忽略升级等花费；兼容旧状态缺少该字段时回退净值
+function todayGoldEarned() {
+  const earned = status.value?.todayGoldEarned
+  return earned === undefined || earned === null
+    ? status.value?.todayGoldGained || 0
+    : earned
+}
+
 function getExpPercent(p: any) {
   if (!p || !p.needed)
     return 0
@@ -657,8 +665,8 @@ useIntervalFn(updateCountdowns, 1000)
             <small v-if="(status?.sessionGoldGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionGoldGained || 0) > 0 ? 'is-up' : 'is-down'">
               本次 {{ (status?.sessionGoldGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionGoldGained) }}
             </small>
-            <small v-if="(status?.todayGoldGained || 0) !== 0" class="ov-tile__delta" :class="(status?.todayGoldGained || 0) > 0 ? 'is-up' : 'is-down'">
-              今日 {{ (status?.todayGoldGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.todayGoldGained) }}
+            <small v-if="todayGoldEarned() !== 0" class="ov-tile__delta is-up">
+              今日 +{{ formatPlainNumber(todayGoldEarned()) }}
             </small>
           </div>
           <div class="ov-tile">

@@ -3,14 +3,16 @@ import type { AdminContext } from './context';
 export {};
 
 /**
- * 金币排行榜路由：聚合当前用户可见的全部农场账号的「今日金币增加」并降序排名。
- * 今日增量取自各账号运行时的 todayGoldGained（由 services/stats 按日基线计算），
- * 避免重复实现统计口径。离线账号无实时增量，按 0 处理并保留在榜单中。
+ * 金币排行榜路由：聚合全部农场账号的「今日金币增加」并降序排名，仅返回前十。
+ * 排名值取自各账号运行时的 todayGoldEarned（services/stats 按天累加的正向金币收入，
+ * 忽略升级/购买等花费），与个人页口径一致。离线账号无实时收入，按 0 处理。
  */
 
 const store = require('../../models/store');
 const { isSuperAdminRole } = require('../../config/user-system');
 const { getTodayKey } = require('../../services/stats');
+
+const RANK_LIMIT = 10;
 const {
     handleApiError,
     createRequireAdminRole,
@@ -82,7 +84,11 @@ function mountCoinRankRoutes(app: Application, ctx: AdminContext): void {
                 }
                 const liveAvatar = String(status?.status?.avatarUrl || '').trim();
                 const avatar = liveAvatar || String(account.avatar || '').trim();
-                const todayGoldGained = toFiniteNumber(status?.todayGoldGained);
+                // 只计增加量：优先新口径 todayGoldEarned，旧数据缺少时回退净值字段
+                const earnedRaw = status?.todayGoldEarned;
+                const todayGoldEarned = earnedRaw === undefined
+                    ? toFiniteNumber(status?.todayGoldGained)
+                    : toFiniteNumber(earnedRaw);
                 return {
                     id: accountId,
                     // 备注名优先，缺省回退游戏昵称 / QQ 号 / 账号 ID
@@ -94,29 +100,29 @@ function mountCoinRankRoutes(app: Application, ctx: AdminContext): void {
                     avatar,
                     platform: String(account.platform || '').trim() || undefined,
                     running: !!account.running,
-                    todayGoldGained,
+                    todayGoldEarned,
                     gold: toFiniteNumber(status?.status?.gold),
                 };
             });
 
-            // 仅展示有有效增长的账号；相同增量时按当前金币数、名称稳定排序
+            // 按今日增加量降序；相同增量时按当前金币数、名称稳定排序；只取前十
             list.sort((a: any, b: any) => {
-                if (b.todayGoldGained !== a.todayGoldGained)
-                    return b.todayGoldGained - a.todayGoldGained;
+                if (b.todayGoldEarned !== a.todayGoldEarned)
+                    return b.todayGoldEarned - a.todayGoldEarned;
                 if (b.gold !== a.gold)
                     return b.gold - a.gold;
                 return String(a.name).localeCompare(String(b.name), 'zh-CN');
             });
 
-            const totalGoldGained = list.reduce((sum: number, item: any) => sum + item.todayGoldGained, 0);
-            const ranked = list.map((item: any, index: number) => ({ ...item, rank: index + 1 }));
+            // 总增加量按全部可见账号汇总，不因榜单只展示前十而截断
+            const totalGoldGained = list.reduce((sum: number, item: any) => sum + item.todayGoldEarned, 0);
+            const ranked = list.slice(0, RANK_LIMIT).map((item: any, index: number) => ({ ...item, rank: index + 1 }));
 
             res.json({
                 ok: true,
                 data: {
                     date: getTodayKey(),
                     updatedAt: Date.now(),
-                    totalAccounts: ranked.length,
                     totalGoldGained,
                     list: ranked,
                 },

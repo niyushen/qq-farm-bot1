@@ -11,7 +11,7 @@ interface RankItem {
   avatar: string
   platform?: string
   running: boolean
-  todayGoldGained: number
+  todayGoldEarned: number
   gold: number
   rank: number
 }
@@ -19,7 +19,6 @@ interface RankItem {
 interface RankData {
   date: string
   updatedAt: number
-  totalAccounts: number
   totalGoldGained: number
   list: RankItem[]
 }
@@ -119,23 +118,16 @@ useIntervalFn(() => loadRank(true), 30000)
               今日农场金币增加排行榜
             </h2>
             <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-              按今日各账号金币净增长实时排名 · {{ data?.date || '—' }}
+              按今日各账号金币增加量实时排名（忽略升级等花费）· 仅展示前十 · {{ data?.date || '—' }}
               <span v-if="data?.updatedAt"> · {{ formatUpdateTime(data.updatedAt) }} 更新</span>
             </p>
           </div>
         </div>
         <div class="flex items-center gap-4">
           <div class="text-right">
-            <div class="text-xs text-gray-500 dark:text-gray-400">今日总增加</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">全员总增加</div>
             <div class="text-lg text-amber-600 font-bold tabular-nums dark:text-amber-400">
               +{{ formatNumber(data?.totalGoldGained || 0) }}
-            </div>
-          </div>
-          <div class="h-8 w-px bg-gray-200 dark:bg-gray-700" />
-          <div class="text-right">
-            <div class="text-xs text-gray-500 dark:text-gray-400">参与账号</div>
-            <div class="text-lg text-gray-800 font-bold tabular-nums dark:text-gray-100">
-              {{ data?.totalAccounts || 0 }}
             </div>
           </div>
           <NButton size="small" secondary :loading="loading" @click="loadRank()">
@@ -199,7 +191,7 @@ useIntervalFn(() => loadRank(true), 30000)
             </div>
             <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">今日增加</div>
             <div class="podium-gain" :style="{ color: medalOf(item.rank).color }">
-              {{ formatGain(item.todayGoldGained) }}
+              {{ formatGain(item.todayGoldEarned) }}
             </div>
             <div class="mt-1 flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500">
               <span class="i-carbon-currency-dollar" />
@@ -250,9 +242,9 @@ useIntervalFn(() => loadRank(true), 30000)
             </div>
             <div class="shrink-0 text-right">
               <div class="text-sm text-amber-600 font-bold tabular-nums dark:text-amber-400">
-                {{ formatGain(item.todayGoldGained) }}
+                {{ formatGain(item.todayGoldEarned) }}
               </div>
-              <div class="text-[11px] text-gray-400">今日金币</div>
+              <div class="text-[11px] text-gray-400">今日增加</div>
             </div>
           </div>
         </div>

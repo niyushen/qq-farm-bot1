@@ -143,6 +143,12 @@ interface DailyBaseline {
 
 const dailyBaseline: DailyBaseline = { date: null, values: {} };
 
+/**
+ * 「今日增加收入」：只累加金币的正向变化，忽略升级/购买等花费导致的下降。
+ * 与 todayGoldGained（余额首尾净值）口径不同，此值只增不减，跨天重置、同日重启保留。
+ */
+const dailyGoldEarned: { date: string | null, value: number } = { date: null, value: 0 };
+
 /** 离线时复用最后一次在线计算出的今日增量，避免用登录前的 0 余额污染基线。 */
 const lastDailyGains = { exp: 0, gold: 0, coupon: 0, goldBean: 0 };
 
@@ -172,6 +178,8 @@ function checkAndResetDailyStats(): void {
         });
         dailyBaseline.date = todayKey;
         dailyBaseline.values = {};
+        dailyGoldEarned.date = todayKey;
+        dailyGoldEarned.value = 0;
         scheduleSave();
     }
     currentDateKey = todayKey;
@@ -179,6 +187,10 @@ function checkAndResetDailyStats(): void {
         dailyBaseline.date = todayKey;
         dailyBaseline.values = {};
         scheduleSave();
+    }
+    if (dailyGoldEarned.date !== todayKey) {
+        dailyGoldEarned.date = todayKey;
+        dailyGoldEarned.value = 0;
     }
 }
 
@@ -237,6 +249,9 @@ function doSave(): void {
         totalOperations: { ...totalOperations },
         initialState: { ...initialState },
         dailyBaseline: { date: dailyBaseline.date, values: { ...dailyBaseline.values } },
+        dailyGoldEarned: { date: dailyGoldEarned.date, value: dailyGoldEarned.value },
+        // 上次在线观测到的金币余额：重连后据此补记离线期间的正向收入
+        lastObservedGold: lastState.gold,
         savedAt: Date.now(),
     };
     savePersistedStats(currentAccountId, data);
@@ -290,6 +305,16 @@ function initStatsWithPersistence(accountId: string, gold: number, exp: number, 
         dailyBaseline.values = {};
     }
 
+    // 今日增加收入（只计正向）：同日重启恢复累计值，跨日重新从 0 开始
+    if (saved && saved.date === todayKey && saved.dailyGoldEarned && saved.dailyGoldEarned.date === todayKey) {
+        dailyGoldEarned.date = todayKey;
+        const restored: number = Number(saved.dailyGoldEarned.value);
+        dailyGoldEarned.value = Number.isFinite(restored) && restored > 0 ? restored : 0;
+    } else {
+        dailyGoldEarned.date = todayKey;
+        dailyGoldEarned.value = 0;
+    }
+
     // 全期累计跨天不重置：无论是否同一天都恢复
     const savedTotals: any = saved && saved.totalOperations && typeof saved.totalOperations === 'object' ? saved.totalOperations : {};
     Object.keys(savedTotals).forEach((key: string) => {
@@ -297,15 +322,32 @@ function initStatsWithPersistence(accountId: string, gold: number, exp: number, 
     });
 
     initStats(gold, exp, coupon, goldBean);
+
+    // 离线期间的正向收入补记：
+    // initStats 刚把 lastState.gold 设为登录瞬间的余额，直接用它会跳过离线涨跌。
+    // 同日重启时改用持久化的「上次在线观测余额」作为增量起点，这样登录后的首次
+    // updateStats 会把离线期间的正向增加累加进 todayGoldEarned，花费（下降）仍忽略。
+    if (saved && saved.date === todayKey && Number.isFinite(Number(saved.lastObservedGold))) {
+        lastState.gold = Number(saved.lastObservedGold);
+    }
 }
 
 function updateStats(currentGold: number, currentExp: number): void {
     if (lastState.gold === -1) lastState.gold = currentGold;
     if (lastState.exp === -1) lastState.exp = currentExp;
 
+    const todayKey: string = getTodayKey();
+    if (dailyGoldEarned.date !== todayKey) {
+        dailyGoldEarned.date = todayKey;
+        dailyGoldEarned.value = 0;
+    }
+
     if (currentGold > lastState.gold) {
         const delta: number = currentGold - lastState.gold;
         session.lastGoldGain = delta;
+        // 只计增加量：金币上升即累加，升级/购买等导致的下降忽略，不冲减当日收入。
+        dailyGoldEarned.value += delta;
+        scheduleSave();
     } else if (currentGold < lastState.gold) {
         session.lastGoldGain = 0;
     }
@@ -404,6 +446,8 @@ function getStats(statusData: any, userState: any, connected: boolean, limits: a
         sessionGoldBeanGained: session.goldBeanGained,
         todayExpGained: lastDailyGains.exp,
         todayGoldGained: lastDailyGains.gold,
+        // 今日收入：只累加正向增加，忽略升级/购买等花费（与个人页、排行榜口径一致）
+        todayGoldEarned: dailyGoldEarned.value,
         todayCouponGained: lastDailyGains.coupon,
         todayGoldBeanGained: lastDailyGains.goldBean,
         lastExpGain: session.lastExpGain,
