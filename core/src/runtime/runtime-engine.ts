@@ -81,7 +81,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
             wxid: String((payload && payload.wxid) || ''),
         };
         const changed = wxCredentialGuard.noteCredentialInvalid(snapshot, async () => {
-            addAccountLog('wx_login_reminder', '微信凭据已明确失效，需要重新扫码授权', accountId, account && account.name || '', { reason: 'definitive' });
+            const reason = String((payload && payload.reason) || 'definitive');
+            addAccountLog('wx_login_reminder', '微信凭据已明确失效，需要重新扫码授权', accountId, account && account.name || '', { reason });
             await triggerOfflineReminder({
                 accountId,
                 accountName: account && account.name || '',
@@ -140,6 +141,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         log,
         addAccountLog,
         needsWxRescan: wxCredentialGuard.needsRescan,
+        noteSuspiciousCredentialFailure: wxCredentialGuard.noteSuspiciousCredentialFailure,
+        clearSuspiciousCredentialFailures: wxCredentialGuard.clearSuspiciousCredentialFailures,
         onWxCredentialDefinitivelyInvalid,
         keepWxCredentialAlive: wxCredentials.keepWxCredentialAlive,
     });

@@ -1,6 +1,7 @@
 export {};
 const { createScheduler } = require('../services/scheduler');
 const wxCredentials = require('../services/wx-credentials');
+const wxCredentialGuard = require('../services/wx-credential-guard');
 
 /**
  * 微信凭证保活 / Code 刷新 / 自动重登（对齐 qq-farm-bot 当前机制）。
@@ -83,6 +84,10 @@ function createAutoCodeRefreshService(deps: any) {
     const needsWxRescan = typeof deps.needsWxRescan === 'function' ? deps.needsWxRescan : () => false;
     const keepCredentialAlive = typeof deps.keepWxCredentialAlive === 'function' ? deps.keepWxCredentialAlive : wxCredentials.keepWxCredentialAlive;
     const getDelayMs = typeof deps.getCredentialKeepaliveDelayMs === 'function' ? deps.getCredentialKeepaliveDelayMs : nextCredentialKeepaliveDelayMs;
+    const noteSuspiciousFailure = typeof deps.noteSuspiciousCredentialFailure === 'function'
+        ? deps.noteSuspiciousCredentialFailure : wxCredentialGuard.noteSuspiciousCredentialFailure;
+    const clearSuspiciousFailures = typeof deps.clearSuspiciousCredentialFailures === 'function'
+        ? deps.clearSuspiciousCredentialFailures : wxCredentialGuard.clearSuspiciousCredentialFailures;
 
     const scheduler = createScheduler('auto_code_refresh');
     const enableNotices = new Map<string, string>();
@@ -138,6 +143,31 @@ function createAutoCodeRefreshService(deps: any) {
         const raw = error.rawMessage || (error instanceof Error ? error.message : error);
         return wxCredentials.isDefinitiveWxCredentialError(raw);
     }
+    /** -109 单次要退避，连续多次才升级；只认原始协议字段，不扫 humanize 文案。 */
+    function isRepeatedInvalidCodeFailure(error: any): boolean {
+        if (!error) return false;
+        const code = Number(error.wxCode ?? error.code);
+        if (code === Number(wxCredentialGuard.REPEATED_INVALID_TOKEN_CODE)) return true;
+        const raw = String(error.rawMessage || (error instanceof Error ? error.message : ''));
+        return /code\s*=\s*-109\b/.test(raw) || /\bRC_PARAMS_INVALID\b/i.test(raw);
+    }
+    function suspiciousFailurePayload(account: any, error: any): any {
+        return {
+            accountId: String(account && account.id || ''),
+            owner: String(account && account.username || ''),
+            wxid: String(account && account.wxid || ''),
+            code: Number(wxCredentialGuard.REPEATED_INVALID_TOKEN_CODE),
+            stage: String(error && error.wxStage || ''),
+        };
+    }
+    function noteRepeatedFailure(account: any, error: any): boolean {
+        if (!isRepeatedInvalidCodeFailure(error)) return false;
+        try {
+            return noteSuspiciousFailure(suspiciousFailurePayload(account, error)) === true;
+        } catch {
+            return false;
+        }
+    }
     function credentialIdentity(account: any): string {
         if (!account) return '';
         return JSON.stringify([
@@ -146,7 +176,7 @@ function createAutoCodeRefreshService(deps: any) {
             Number(account.wxCredentialLastSuccessAt) || 0,
         ]);
     }
-    function blockCredential(accountId: string): void {
+    function blockCredential(accountId: string, reason = 'definitive'): void {
         const account = findAccount(accountId);
         definitiveCredentialFailures.set(String(accountId), credentialIdentity(account));
         scheduler.clear(getKeepaliveTaskName(accountId));
@@ -158,6 +188,7 @@ function createAutoCodeRefreshService(deps: any) {
                     accountId: String(accountId),
                     owner: String(account.username || ''),
                     wxid: String(account.wxid || ''),
+                    reason,
                 })).catch(() => { /* 提醒失败不影响凭据阻断 */ });
             } catch { /* 同步异常同样吞掉 */ }
         }
@@ -255,13 +286,23 @@ function createAutoCodeRefreshService(deps: any) {
             log('系统', `自动刷新 Code 成功: ${account.name}`, { accountId: key, accountName: account.name, reason });
             if (recovery) recovery.failures = 0;
             definitiveCredentialFailures.delete(key);
+            clearSuspiciousFailures(key);
             return true;
         } catch (err: any) {
             if (!stillCurrent()) return false;
             if (recovery) recovery.failures += 1;
-            if (isDefinitiveCredentialFailure(err)) {
-                blockCredential(accountId);
-                addAccountLog('auto_relogin_blocked', '微信授权已明确失效，请重新扫码后再继续自动登录', account.id, account.name, { reason });
+            let definitive = isDefinitiveCredentialFailure(err);
+            let blockReason = 'definitive';
+            if (!definitive && noteRepeatedFailure(account, err)) {
+                definitive = true;
+                blockReason = 'repeated_-109';
+            }
+            if (definitive) {
+                blockCredential(accountId, blockReason);
+                const message = blockReason === 'repeated_-109'
+                    ? '微信凭证连续多次返回 -109，请重新扫码后再继续自动登录'
+                    : '微信授权已明确失效，请重新扫码后再继续自动登录';
+                addAccountLog('auto_relogin_blocked', message, account.id, account.name, { reason: blockReason });
             }
             const rawDiag = (err && (err.rawMessage || err.wxCode != null))
                 ? ` [原始: code=${err.wxCode ?? '-'} stage=${err.wxStage || '-'} ${String(err.rawMessage || '').slice(0, 120)}]`
@@ -297,9 +338,19 @@ function createAutoCodeRefreshService(deps: any) {
                     if (keepaliveGeneration.get(key) !== generation) return;
                     if (!result || !result.Success) {
                         consecutiveFailures += 1;
-                        const definitive = !!(result && result.definitive === true);
+                        let definitive = !!(result && result.definitive === true);
+                        let blockReason = 'definitive';
+                        if (!definitive && noteRepeatedFailure(latest, result)) {
+                            definitive = true;
+                            blockReason = 'repeated_-109';
+                        }
                         nextReason = definitive ? 'definitive' : 'retry';
-                        if (nextReason === 'definitive') blockCredential(accountId);
+                        if (nextReason === 'definitive') {
+                            blockCredential(accountId, blockReason);
+                            addAccountLog('auto_relogin_blocked', blockReason === 'repeated_-109'
+                                ? '微信凭证连续多次返回 -109，请重新扫码后再继续自动登录'
+                                : '微信授权已明确失效，请重新扫码后再继续自动登录', latest.id, latest.name, { reason: blockReason });
+                        }
                         const stateLabel = mode === 'offline' ? '断线等待期间' : '当前游戏连接不重启';
                         const codeTag = result && (result.wxCode !== null && result.wxCode !== undefined)
                             ? ` [wxCode=${result.wxCode}${result.wxStage ? ' stage=' + result.wxStage : ''}]` : '';
@@ -308,16 +359,29 @@ function createAutoCodeRefreshService(deps: any) {
                             wxCode: result && result.wxCode,
                             wxStage: result && result.wxStage,
                             definitive,
+                            reason: blockReason,
                         });
                     } else {
                         consecutiveFailures = 0;
+                        clearSuspiciousFailures(key);
                     }
                 } catch (error: any) {
                     if (keepaliveGeneration.get(key) !== generation) return;
                     consecutiveFailures += 1;
-                    nextReason = isDefinitiveCredentialFailure(error) ? 'definitive' : 'retry';
-                    if (nextReason === 'definitive') blockCredential(accountId);
-                    log('错误', `微信凭证保活异常（${nextReason === 'definitive' ? '等待重新授权' : '将受控重试'}）: ${latest.name}`, { accountId: key });
+                    let definitive = isDefinitiveCredentialFailure(error);
+                    let blockReason = 'definitive';
+                    if (!definitive && noteRepeatedFailure(latest, error)) {
+                        definitive = true;
+                        blockReason = 'repeated_-109';
+                    }
+                    nextReason = definitive ? 'definitive' : 'retry';
+                    if (nextReason === 'definitive') {
+                        blockCredential(accountId, blockReason);
+                        addAccountLog('auto_relogin_blocked', blockReason === 'repeated_-109'
+                            ? '微信凭证连续多次返回 -109，请重新扫码后再继续自动登录'
+                            : '微信授权已明确失效，请重新扫码后再继续自动登录', latest.id, latest.name, { reason: blockReason });
+                    }
+                    log('错误', `微信凭证保活异常（${nextReason === 'definitive' ? '等待重新授权' : '将受控重试'}）: ${latest.name}`, { accountId: key, reason: blockReason });
                 } finally {
                     // 明确失效后不再排程，只能由重新扫码恢复。
                     if (nextReason !== 'definitive') scheduleNext(nextReason);

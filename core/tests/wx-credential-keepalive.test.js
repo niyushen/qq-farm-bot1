@@ -2,6 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// guard 在模块加载时解析数据文件路径；先隔离到临时目录，避免测试污染真实账号数据。
+const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-farm-wx-test-'));
+process.env.FARM_DATA_DIR = testDataDir;
 
 const {
   createAutoCodeRefreshService,
@@ -9,8 +16,13 @@ const {
   resolveKickoutDelayMs,
 } = require('../dist/runtime/auto-code-refresh');
 const wxCredentials = require('../dist/services/wx-credentials');
+const wxCredentialGuard = require('../dist/services/wx-credential-guard');
 
 const MINUTE = 60 * 1000;
+
+test.after(() => {
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+});
 
 test('keepalive targets 35-45 minutes before server expiry', () => {
   const now = 1_800_000_000_000;
@@ -44,11 +56,76 @@ test('definitive WeChat credential errors are recognized', () => {
   assert.equal(wxCredentials.isDefinitiveWxCredentialError('socket read timeout'), false);
 });
 
+test('42007 is a definitive authorization failure', () => {
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat login_buffer failed: code=42007 credential response rejected'), true);
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat refresh_token failed: code=42007 credential response rejected'), true);
+});
+
 test('recoverable -109 RC_PARAMS_INVALID is not definitive', () => {
   assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat token failed: code=-109 msg=RC_PARAMS_INVALID'), false);
   assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat refresh_token failed: code=-109 credential response rejected'), false);
   // 真正空 token 仍属明确失效
   assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat refresh_token failed: RefreshToken empty token'), true);
+});
+
+test('guard escalates consecutive -109 failures and accepted scan resets the counter', () => {
+  const accountId = 'guard-109';
+  assert.equal(wxCredentialGuard.noteSuspiciousCredentialFailure({ accountId, code: -109, stage: 'refresh_token' }), false);
+  assert.equal(wxCredentialGuard.noteSuspiciousCredentialFailure({ accountId, code: -109, stage: 'refresh_token' }), false);
+  assert.equal(wxCredentialGuard.noteSuspiciousCredentialFailure({ accountId, code: -109, stage: 'refresh_token' }), true);
+  // guard 只累计；真正的 needsRescan 仍由统一的阻断回调写入。
+  assert.equal(wxCredentialGuard.needsRescan(accountId), false);
+  wxCredentialGuard.noteCredentialInvalid({ accountId });
+  assert.equal(wxCredentialGuard.needsRescan(accountId), true);
+  wxCredentialGuard.noteAcceptedScan(accountId);
+  assert.equal(wxCredentialGuard.needsRescan(accountId), false);
+  assert.equal(wxCredentialGuard.noteSuspiciousCredentialFailure({ accountId, code: -109 }), false);
+  wxCredentialGuard.clearSuspiciousCredentialFailures(accountId);
+});
+
+test('repeated -109 during credential refresh blocks the account as need_rescan', async () => {
+  const account = {
+    id: '2',
+    platform: 'wx',
+    username: 'owner-2',
+    wxid: 'wxid-2',
+    name: '账号2',
+    loginBuffer: 'login-buffer-2',
+    refreshtoken: 'refresh-token-2',
+    wxCredentialExpiresAt: 0,
+    autoLogin: true,
+  };
+  let suspiciousCount = 0;
+  let invalidPayload = null;
+  const service = createAutoCodeRefreshService({
+    store: {},
+    getAccounts: () => ({ accounts: [account] }),
+    addOrUpdateAccount: () => ({}),
+    resolveWorkerControls: () => ({}),
+    log: () => {},
+    addAccountLog: () => {},
+    needsWxRescan: () => false,
+    noteSuspiciousCredentialFailure: () => ++suspiciousCount >= 3,
+    clearSuspiciousCredentialFailures: () => {},
+    keepWxCredentialAlive: async () => {
+      const error = new Error('WeChat refresh_token failed: code=-109 credential response rejected');
+      error.wxCode = -109;
+      error.wxStage = 'refresh_token';
+      throw error;
+    },
+    onWxCredentialDefinitivelyInvalid: (payload) => { invalidPayload = payload; },
+  });
+
+  assert.equal(await service.refreshAccountCode('2', 'manual'), false);
+  assert.equal(suspiciousCount, 1);
+  assert.equal(invalidPayload, null);
+  assert.equal(await service.refreshAccountCode('2', 'manual'), false);
+  assert.equal(suspiciousCount, 2);
+  assert.equal(invalidPayload, null);
+  assert.equal(await service.refreshAccountCode('2', 'manual'), false);
+  assert.equal(suspiciousCount, 3);
+  assert.equal(invalidPayload && invalidPayload.accountId, '2');
+  assert.equal(invalidPayload && invalidPayload.reason, 'repeated_-109');
 });
 
 test('ManualAuth rejected handshake failure is not definitive unless an explicit revoke signal is present', () => {

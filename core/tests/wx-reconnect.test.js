@@ -12,6 +12,7 @@ const { createDataProvider } = require('../dist/runtime/data-provider');
 function createProvider(overrides = {}) {
     const accounts = overrides.accounts || [];
     const calls = { refresh: [], rescan: [] };
+    let needsRescan = !!overrides.needsRescan;
 
     const provider = createDataProvider({
         workers: {},
@@ -32,11 +33,14 @@ function createProvider(overrides = {}) {
         restartWorker: () => {},
         refreshAccountCode: async (accountId, reason) => {
             calls.refresh.push({ accountId, reason });
+            if (Object.prototype.hasOwnProperty.call(overrides, 'needsRescanAfterRefresh')) {
+                needsRescan = !!overrides.needsRescanAfterRefresh;
+            }
             return overrides.refreshResult === undefined ? true : overrides.refreshResult;
         },
         needsWxRescan: (accountId) => {
             calls.rescan.push(accountId);
-            return !!overrides.needsRescan;
+            return needsRescan;
         },
     });
 
@@ -99,6 +103,19 @@ test('reconnect surfaces transient failures as retryable errors', async () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'refresh_failed');
     assert.match(result.message, /重连失败/);
+});
+
+test('reconnect reports need_rescan when repeated failures block the account during refresh', async () => {
+    const { provider } = createProvider({
+        accounts: [{ id: '1', platform: 'wx', name: '微信号', loginBuffer: 'buffer' }],
+        refreshResult: false,
+        needsRescanAfterRefresh: true,
+    });
+
+    const result = await provider.reconnectAccount('1');
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'need_rescan');
+    assert.match(result.message, /重新扫码/);
 });
 
 test('reconnect rejects unknown accounts', async () => {

@@ -583,6 +583,9 @@ function createDataProvider(options: DataProviderOptions) {
                 refreshed = await refreshAccountCode(String(acc.id), 'manual_reconnect');
             }
             catch (error: any) {
+                if (typeof needsWxRescan === 'function' && needsWxRescan(String(acc.id))) {
+                    return { ok: false as const, reason: 'need_rescan' as const, message: '微信授权已失效，请重新扫码登录' };
+                }
                 return {
                     ok: false as const,
                     reason: 'refresh_failed' as const,
@@ -591,6 +594,11 @@ function createDataProvider(options: DataProviderOptions) {
             }
 
             if (!refreshed) {
+                // 连续 -109 升级或本次明确失效都可能发生在刷新过程中；返回结构化
+                // need_rescan，避免面板继续显示误导性的“请检查网络”。
+                if (typeof needsWxRescan === 'function' && needsWxRescan(String(acc.id))) {
+                    return { ok: false as const, reason: 'need_rescan' as const, message: '微信授权已失效，请重新扫码登录' };
+                }
                 return {
                     ok: false as const,
                     reason: 'refresh_failed' as const,

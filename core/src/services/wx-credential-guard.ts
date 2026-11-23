@@ -14,8 +14,16 @@ const { readJsonFile, writeJsonFileAtomic } = require('./json-db');
 
 const REGISTRY_FILE = getDataFile('wx-credential-guard.json');
 
+/**
+ * refresh_token/login_buffer 连续返回 -109（RC_PARAMS_INVALID）时，单次可能是握手抖动；
+ * 同一扫码代次内反复出现则说明凭证已不可用。达到阈值后升级为明确失效，避免账号
+ * 只退避不停机、面板却一直提示“请检查网络”。成功刷新或重新扫码都会清零。
+ */
+const REPEATED_INVALID_TOKEN_CODE = -109;
+const REPEATED_INVALID_TOKEN_THRESHOLD = 3;
+
 function emptyRegistry(): any {
-    return { generations: {}, incidents: {} };
+    return { generations: {}, incidents: {}, failures: {} };
 }
 
 function loadRegistry(): any {
@@ -23,6 +31,7 @@ function loadRegistry(): any {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return emptyRegistry();
     if (!data.generations || typeof data.generations !== 'object' || Array.isArray(data.generations)) data.generations = {};
     if (!data.incidents || typeof data.incidents !== 'object' || Array.isArray(data.incidents)) data.incidents = {};
+    if (!data.failures || typeof data.failures !== 'object' || Array.isArray(data.failures)) data.failures = {};
     return data;
 }
 
@@ -53,8 +62,48 @@ function noteAcceptedScan(accountId: string): number {
     const nextGeneration = (Number(data.generations[key]) || 0) + 1;
     data.generations[key] = nextGeneration;
     delete data.incidents[key];
+    delete data.failures[key];
     saveRegistry(data);
     return nextGeneration;
+}
+
+/**
+ * 记录同代次内连续 -109 次数。只累计计数，不直接阻断：达到阈值后由调用方
+ * 走统一的 blockCredential → noteCredentialInvalid 链路，保证提醒只发一次。
+ * @returns 是否已达到升级阈值
+ */
+function noteSuspiciousCredentialFailure(input: any): boolean {
+    const snapshot = input && typeof input === 'object' ? input : { accountId: input };
+    const key = String(snapshot.accountId || '');
+    if (!key) return false;
+    const code = Number(snapshot.code ?? snapshot.wxCode);
+    if (code !== REPEATED_INVALID_TOKEN_CODE) return false;
+
+    const data = loadRegistry();
+    const generation = Number(data.generations[key]) || 0;
+    const previous = data.failures[key];
+    const sameGeneration = !!previous && Number(previous.generation) === generation;
+    const count = (sameGeneration ? Number(previous.count) || 0 : 0) + 1;
+    data.failures[key] = {
+        generation,
+        code: REPEATED_INVALID_TOKEN_CODE,
+        stage: String(snapshot.stage || ''),
+        count,
+        firstSeenAt: sameGeneration ? Number(previous.firstSeenAt) || Date.now() : Date.now(),
+        lastSeenAt: Date.now(),
+    };
+    saveRegistry(data);
+    return count >= REPEATED_INVALID_TOKEN_THRESHOLD;
+}
+
+/** 成功续期、人工恢复或清除事件时重置连续失败计数。 */
+function clearSuspiciousCredentialFailures(accountId: string): void {
+    const key = String(accountId || '');
+    if (!key) return;
+    const data = loadRegistry();
+    if (!data.failures[key]) return;
+    delete data.failures[key];
+    saveRegistry(data);
 }
 
 /**
@@ -78,6 +127,7 @@ function noteCredentialInvalid(input: any, onInvalid?: (payload: any) => Promise
         owner: String(snapshot.owner || ''),
         wxid: String(snapshot.wxid || ''),
     };
+    delete data.failures[key];
     // 先落盘再外发（fail closed）：状态没写成功就不声明已提醒。
     saveRegistry(data);
     if (typeof onInvalid === 'function') {
@@ -93,14 +143,19 @@ function clearIncident(accountId: string): void {
     if (!key) return;
     const data = loadRegistry();
     delete data.incidents[key];
+    delete data.failures[key];
     saveRegistry(data);
 }
 
 module.exports = {
     REGISTRY_FILE,
+    REPEATED_INVALID_TOKEN_CODE,
+    REPEATED_INVALID_TOKEN_THRESHOLD,
     clearIncident,
+    clearSuspiciousCredentialFailures,
     currentGeneration,
     needsRescan,
     noteAcceptedScan,
     noteCredentialInvalid,
+    noteSuspiciousCredentialFailure,
 };
