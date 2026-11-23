@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { useIntervalFn } from '@vueuse/core'
-import { NButton } from 'naive-ui/es/button'
 import { computed, onMounted, ref } from 'vue'
 import api from '@/api'
+import RollingNumber from '@/components/ui/RollingNumber.vue'
 
 interface RankItem {
   id: string
@@ -20,6 +20,10 @@ interface RankData {
   date: string
   updatedAt: number
   totalGoldGained: number
+  /** 参与汇总的全员账号数 */
+  accountCount?: number
+  /** 榜单展示条数 */
+  limit?: number
   list: RankItem[]
 }
 
@@ -36,7 +40,26 @@ const medal = {
 const topThree = computed(() => (data.value?.list || []).filter(item => item.rank <= 3))
 const restList = computed(() => (data.value?.list || []).filter(item => item.rank > 3))
 
-// 领奖台视觉顺序：亚军(2) - 冠军(1) - 季军(3)
+/** 全员总增加：所有账号今日金币增加量之和（不受榜单仅展示前十影响） */
+const totalGain = computed(() => Number(data.value?.totalGoldGained || 0))
+
+/** 参与汇总的账号数：优先取后端字段，旧版后端回退为榜单实际条数 */
+const accountCount = computed(() => {
+  const reported = Number(data.value?.accountCount || 0)
+  if (reported > 0)
+    return reported
+  return (data.value?.list || []).length
+})
+
+/** 榜单展示条数 */
+const showLimit = computed(() => {
+  const reported = Number(data.value?.limit || 0)
+  if (reported > 0)
+    return reported
+  return (data.value?.list || []).length
+})
+
+/** 领奖台视觉顺序：亚军(2) - 冠军(1) - 季军(3) */
 const podiumOrder = computed(() => {
   const map = new Map(topThree.value.map(item => [item.rank, item]))
   return [map.get(2), map.get(1), map.get(3)].filter(Boolean) as RankItem[]
@@ -45,22 +68,6 @@ const podiumOrder = computed(() => {
 function formatNumber(value: unknown) {
   const num = Number(value)
   return Number.isFinite(num) ? Math.round(num).toLocaleString('zh-CN') : '0'
-}
-
-function formatGain(value: unknown) {
-  const num = Number(value)
-  if (!Number.isFinite(num))
-    return '0'
-  const rounded = Math.round(num)
-  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString('zh-CN')}`
-}
-
-function formatUpdateTime(ts: number) {
-  if (!ts)
-    return ''
-  const d = new Date(ts)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 function medalOf(rank: number) {
@@ -108,9 +115,44 @@ useIntervalFn(() => loadRank(true), 30000)
   <div class="page-stack space-y-4">
     <!-- 概览条 -->
     <div class="overflow-hidden border farm-card border-gray-200 rounded-2xl bg-white shadow-md dark:border-gray-700 dark:bg-gray-800">
-      <div class="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div class="flex items-center gap-3">
-          <div class="h-11 w-11 flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-yellow-500 text-white shadow-sm">
+      <div class="flex flex-col gap-4 p-4 sm:p-5">
+        <!-- 全员总增加：主视觉区 -->
+        <div class="rank-total">
+          <div class="rank-total__head">
+            <span class="rank-total__icon">
+              <span class="i-carbon-trophy" />
+            </span>
+            <span class="rank-total__label">全员今日金币总增加</span>
+          </div>
+          <div class="rank-total__value">
+            <RollingNumber
+              :value="totalGain"
+              :sign="true"
+              :group="true"
+              :duration="1100"
+              class="rank-total__number"
+            />
+            <span class="rank-total__unit">金币</span>
+          </div>
+          <div class="rank-total__meta">
+            <span class="rank-total__chip">
+              <span class="i-carbon-user-multiple" />
+              {{ accountCount }} 个账号
+            </span>
+            <span class="rank-total__chip">
+              <span class="i-carbon-ranking" />
+              榜单前 {{ showLimit }} 名
+            </span>
+            <span v-if="data?.date" class="rank-total__chip rank-total__chip--muted">
+              <span class="i-carbon-calendar" />
+              {{ data.date }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 标题行 -->
+        <div class="flex items-center gap-3 border-t border-gray-100 pt-4 dark:border-gray-700/60">
+          <div class="h-11 w-11 flex shrink-0 items-center justify-center rounded-xl from-amber-400 to-yellow-500 bg-gradient-to-br text-white shadow-sm">
             <span class="i-carbon-trophy text-2xl" />
           </div>
           <div>
@@ -118,38 +160,25 @@ useIntervalFn(() => loadRank(true), 30000)
               今日农场金币增加排行榜
             </h2>
             <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-              按今日各账号金币增加量实时排名（忽略升级等花费）· 仅展示前十 · {{ data?.date || '—' }}
-              <span v-if="data?.updatedAt"> · {{ formatUpdateTime(data.updatedAt) }} 更新</span>
+              按今日各账号金币增加量实时排名（忽略升级等花费）· 每 30 秒自动更新
             </p>
           </div>
-        </div>
-        <div class="flex items-center gap-4">
-          <div class="text-right">
-            <div class="text-xs text-gray-500 dark:text-gray-400">全员总增加</div>
-            <div class="text-lg text-amber-600 font-bold tabular-nums dark:text-amber-400">
-              +{{ formatNumber(data?.totalGoldGained || 0) }}
-            </div>
-          </div>
-          <NButton size="small" secondary :loading="loading" @click="loadRank()">
-            <template #icon>
-              <span class="i-carbon-renew" />
-            </template>
-            刷新
-          </NButton>
         </div>
       </div>
     </div>
 
     <!-- 加载骨架 -->
-    <div v-if="loading && !data" class="farm-card flex items-center justify-center gap-2 py-16 text-gray-400">
+    <div v-if="loading && !data" class="flex items-center justify-center gap-2 farm-card py-16 text-gray-400">
       <span class="i-svg-spinners-270-ring text-xl" />
       <span>正在加载排行榜…</span>
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="!loading && (!data || !data.list.length)" class="farm-card flex flex-col items-center justify-center gap-2 py-16 text-gray-400">
+    <div v-else-if="!loading && (!data || !data.list.length)" class="flex flex-col items-center justify-center gap-2 farm-card py-16 text-gray-400">
       <span class="i-carbon-trophy text-4xl" />
-      <p class="text-sm">暂无排行榜数据，添加并启动农场账号后即可查看</p>
+      <p class="text-sm">
+        暂无排行榜数据，添加并启动农场账号后即可查看
+      </p>
     </div>
 
     <template v-else>
@@ -189,9 +218,16 @@ useIntervalFn(() => loadRank(true), 30000)
             <div v-if="item.nick && item.nick !== item.name" class="mt-0.5 max-w-full truncate text-xs text-gray-400 dark:text-gray-500" :title="item.nick">
               {{ item.nick }}
             </div>
-            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">今日增加</div>
+            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              今日增加
+            </div>
             <div class="podium-gain" :style="{ color: medalOf(item.rank).color }">
-              {{ formatGain(item.todayGoldEarned) }}
+              <RollingNumber
+                :value="item.todayGoldEarned"
+                :sign="true"
+                :group="true"
+                :duration="900"
+              />
             </div>
             <div class="mt-1 flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500">
               <span class="i-carbon-currency-dollar" />
@@ -206,7 +242,9 @@ useIntervalFn(() => loadRank(true), 30000)
         <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-700/40">
           <div class="flex items-center gap-2">
             <span class="i-carbon-list text-lg text-gray-500 dark:text-gray-400" />
-            <h3 class="text-sm text-gray-700 font-semibold dark:text-gray-300">其他排名</h3>
+            <h3 class="text-sm text-gray-700 font-semibold dark:text-gray-300">
+              其他排名
+            </h3>
             <span class="text-xs text-gray-400">第 4 名起</span>
           </div>
         </div>
@@ -214,12 +252,12 @@ useIntervalFn(() => loadRank(true), 30000)
           <div
             v-for="item in restList"
             :key="item.id"
-            class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/30 sm:px-5"
+            class="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-gray-50 sm:px-5 dark:hover:bg-gray-700/30"
           >
-            <div class="w-7 shrink-0 text-center text-sm text-gray-400 font-semibold tabular-nums dark:text-gray-500">
+            <div class="w-7 shrink-0 text-center text-sm text-gray-400 tabular-nums font-semibold dark:text-gray-500">
               {{ item.rank }}
             </div>
-            <div class="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-gray-200 bg-gray-100 dark:border-gray-600 dark:bg-gray-700">
+            <div class="h-10 w-10 shrink-0 overflow-hidden border border-gray-200 rounded-full bg-gray-100 dark:border-gray-600 dark:bg-gray-700">
               <img
                 v-if="resolveAvatar(item)"
                 :src="resolveAvatar(item)"
@@ -227,7 +265,7 @@ useIntervalFn(() => loadRank(true), 30000)
                 loading="lazy"
                 @error="markAvatarFailed(item.id)"
               >
-              <span v-else class="h-full w-full flex items-center justify-center i-carbon-user-avatar text-xl text-gray-300 dark:text-gray-500" />
+              <span v-else class="i-carbon-user-avatar h-full w-full flex items-center justify-center text-xl text-gray-300 dark:text-gray-500" />
             </div>
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm text-gray-800 font-medium dark:text-gray-100" :title="item.name">
@@ -241,10 +279,17 @@ useIntervalFn(() => loadRank(true), 30000)
               </div>
             </div>
             <div class="shrink-0 text-right">
-              <div class="text-sm text-amber-600 font-bold tabular-nums dark:text-amber-400">
-                {{ formatGain(item.todayGoldEarned) }}
+              <div class="text-sm text-amber-600 tabular-nums font-bold dark:text-amber-400">
+                <RollingNumber
+                  :value="item.todayGoldEarned"
+                  :sign="true"
+                  :group="true"
+                  :duration="800"
+                />
               </div>
-              <div class="text-[11px] text-gray-400">今日增加</div>
+              <div class="text-[11px] text-gray-400">
+                今日增加
+              </div>
             </div>
           </div>
         </div>
@@ -254,6 +299,102 @@ useIntervalFn(() => loadRank(true), 30000)
 </template>
 
 <style scoped>
+/* 全员总增加主视觉区 */
+.rank-total {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px 20px;
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(240, 192, 64, 0.22), transparent 62%),
+    radial-gradient(100% 80% at 100% 100%, rgba(67, 141, 99, 0.14), transparent 60%), var(--ui-surface-soft);
+  border: 1px solid rgba(227, 178, 60, 0.28);
+}
+
+.rank-total__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rank-total__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #f0c040, #e3b23c);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 2px 6px rgba(227, 178, 60, 0.35);
+}
+
+.rank-total__label {
+  font-size: 13px;
+  font-weight: var(--fw-600);
+  color: var(--ui-muted);
+  letter-spacing: 0.02em;
+}
+
+.rank-total__value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.rank-total__number {
+  font-size: clamp(34px, 7vw, 52px);
+  font-weight: var(--fw-800);
+  line-height: 1.05;
+  color: #d99413;
+  letter-spacing: -0.01em;
+  text-shadow: 0 2px 10px rgba(217, 148, 19, 0.22);
+}
+
+.rank-total__unit {
+  font-size: 14px;
+  font-weight: var(--fw-600);
+  color: var(--ui-subtle);
+}
+
+.rank-total__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rank-total__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: var(--fw-600);
+  color: var(--ui-muted);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+}
+
+.rank-total__chip--muted {
+  color: var(--ui-subtle);
+}
+
+.dark .rank-total {
+  border-color: rgba(227, 178, 60, 0.22);
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(240, 192, 64, 0.16), transparent 62%),
+    radial-gradient(100% 80% at 100% 100%, rgba(67, 141, 99, 0.12), transparent 60%), rgba(31, 41, 55, 0.55);
+}
+
+.dark .rank-total__number {
+  color: #f2c558;
+  text-shadow: 0 2px 12px rgba(242, 197, 88, 0.25);
+}
+
 .podium-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -269,7 +410,9 @@ useIntervalFn(() => loadRank(true), 30000)
   border: 2px solid var(--medal);
   border-radius: 18px;
   background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-sm), 0 0 0 4px var(--medal-soft);
+  box-shadow:
+    var(--ui-shadow-sm),
+    0 0 0 4px var(--medal-soft);
   text-align: center;
 }
 
@@ -283,7 +426,9 @@ useIntervalFn(() => loadRank(true), 30000)
 .podium-card--rank-1 {
   padding-top: 28px;
   padding-bottom: 28px;
-  box-shadow: var(--ui-shadow-md), 0 0 0 5px var(--medal-soft);
+  box-shadow:
+    var(--ui-shadow-md),
+    0 0 0 5px var(--medal-soft);
 }
 
 .podium-crown {

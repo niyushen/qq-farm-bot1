@@ -124,6 +124,10 @@ function mountCoinRankRoutes(app: Application, ctx: AdminContext): void {
                     date: getTodayKey(),
                     updatedAt: Date.now(),
                     totalGoldGained,
+                    // 全员口径：参与汇总的账号总数（含榜单前十之外的账号）
+                    accountCount: list.length,
+                    // 榜单展示条数
+                    limit: RANK_LIMIT,
                     list: ranked,
                 },
             });
