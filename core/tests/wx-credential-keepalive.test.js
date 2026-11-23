@@ -44,6 +44,29 @@ test('definitive WeChat credential errors are recognized', () => {
   assert.equal(wxCredentials.isDefinitiveWxCredentialError('socket read timeout'), false);
 });
 
+test('recoverable -109 RC_PARAMS_INVALID is not definitive', () => {
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat token failed: code=-109 msg=RC_PARAMS_INVALID'), false);
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat refresh_token failed: code=-109 credential response rejected'), false);
+  // 真正空 token 仍属明确失效
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('WeChat refresh_token failed: RefreshToken empty token'), true);
+});
+
+test('ManualAuth rejected handshake failure is not definitive unless an explicit revoke signal is present', () => {
+  // 换 Code 时 MMTLS 握手偶发失败：临时，不应永久阻断账号
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('ManualAuth rejected: code=unknown message=handshake timeout'), false);
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('获取 Code 失败: ManualAuth rejected: code=0 message=decrypt failed'), false);
+  // 但带上明确撤销信号时仍是 definitive
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('ManualAuth rejected: code=40188 message=invalid scope'), true);
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('ManualAuth rejected: code=-101 message=credential response rejected'), true);
+});
+
+test('humanized Chinese message is not re-classified as definitive by the service', () => {
+  // 结构化 definitive 字段是唯一真相源
+  assert.equal(wxCredentials.isDefinitiveWxCredentialError('微信登录凭证已失效，请在面板重新扫码登录'), true);
+  // 但保活调用方必须只信结构化字段，不把这句文案二次喂进判定；
+  // 见 auto-code-refresh 的 isDefinitiveCredentialFailure：带 Success 字段且非 definitive 的结果被忽略。
+});
+
 test('credential metadata persists server expiry', () => {
   const meta = wxCredentials.buildCredentialMetadata({
     credentialExpiresAt: 1_800_000_000_000,

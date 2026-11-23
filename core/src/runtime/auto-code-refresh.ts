@@ -127,8 +127,16 @@ function createAutoCodeRefreshService(deps: any) {
             .some(prefix => String(reason || '').includes(prefix));
     }
     function isDefinitiveCredentialFailure(error: any): boolean {
-        if (error && error.definitive === true) return true;
-        return wxCredentials.isDefinitiveWxCredentialError(error && error.message ? error.message : error);
+        if (!error) return false;
+        // 唯一真相源：底层基于「原始」协议错误算出的结构化 definitive。
+        if (error.definitive === true) return true;
+        // 若对象是 humanize 后的结果（带 Success/Message 字段且无 definitive），
+        // 绝不能把人类可读文案再喂给判定器：文案含“凭证已失效”会被正则自我确认成
+        // definitive，使临时握手错误被误判为永久失效并停掉保活。
+        if (typeof error === 'object' && 'Success' in error && error.definitive !== true) return false;
+        // Error 实例：使用原始 message 判定（不含 humanize 前缀的协议错误）。
+        const raw = error.rawMessage || (error instanceof Error ? error.message : error);
+        return wxCredentials.isDefinitiveWxCredentialError(raw);
     }
     function credentialIdentity(account: any): string {
         if (!account) return '';
@@ -177,6 +185,10 @@ function createAutoCodeRefreshService(deps: any) {
         if (result && result.Success && result.Data && result.Data.code) return String(result.Data.code);
         const error: any = new Error((result && result.Message) || '进程内获取 Code 失败');
         error.definitive = !!(result && result.definitive);
+        // 透传原始协议诊断字段，避免换码失败的原始错误码被 humanize 文案吞掉。
+        error.rawMessage = result && result.rawMessage;
+        error.wxCode = result && result.wxCode;
+        error.wxStage = result && result.wxStage;
         throw error;
     }
 
@@ -216,8 +228,10 @@ function createAutoCodeRefreshService(deps: any) {
             if (nearExpiry && account.loginBuffer && account.refreshtoken) {
                 const keptAlive = await keepCredentialAlive(account);
                 if (!stillCurrent()) return false;
-                if (keptAlive && !keptAlive.Success && (keptAlive.definitive === true || isDefinitiveCredentialFailure(keptAlive.Message))) {
-                    throw new Error(keptAlive.Message || '微信授权已失效，请重新扫码');
+                if (keptAlive && !keptAlive.Success && keptAlive.definitive === true) {
+                    const err: any = new Error(keptAlive.Message || '微信授权已失效，请重新扫码');
+                    err.definitive = true;
+                    throw err;
                 }
                 if (keptAlive && keptAlive.Success) account = findAccount(accountId) || account;
             }
@@ -249,8 +263,11 @@ function createAutoCodeRefreshService(deps: any) {
                 blockCredential(accountId);
                 addAccountLog('auto_relogin_blocked', '微信授权已明确失效，请重新扫码后再继续自动登录', account.id, account.name, { reason });
             }
-            addAccountLog('auto_code_refresh_failed', `自动刷新 Code 失败: ${err && err.message ? err.message : String(err)}`, account.id, account.name, { reason });
-            log('错误', `自动刷新 Code 失败: ${account.name} - ${err && err.message ? err.message : String(err)}`, { accountId: key, accountName: account.name, reason });
+            const rawDiag = (err && (err.rawMessage || err.wxCode != null))
+                ? ` [原始: code=${err.wxCode ?? '-'} stage=${err.wxStage || '-'} ${String(err.rawMessage || '').slice(0, 120)}]`
+                : '';
+            addAccountLog('auto_code_refresh_failed', `自动刷新 Code 失败: ${err && err.message ? err.message : String(err)}${rawDiag}`, account.id, account.name, { reason });
+            log('错误', `自动刷新 Code 失败: ${account.name} - ${err && err.message ? err.message : String(err)}${rawDiag}`, { accountId: key, accountName: account.name, reason, wxCode: err && err.wxCode, wxStage: err && err.wxStage });
             return false;
         }
     }
@@ -280,11 +297,18 @@ function createAutoCodeRefreshService(deps: any) {
                     if (keepaliveGeneration.get(key) !== generation) return;
                     if (!result || !result.Success) {
                         consecutiveFailures += 1;
-                        nextReason = (result && result.definitive === true) || isDefinitiveCredentialFailure(result && result.Message)
-                            ? 'definitive' : 'retry';
+                        const definitive = !!(result && result.definitive === true);
+                        nextReason = definitive ? 'definitive' : 'retry';
                         if (nextReason === 'definitive') blockCredential(accountId);
                         const stateLabel = mode === 'offline' ? '断线等待期间' : '当前游戏连接不重启';
-                        log('错误', `微信凭证保活失败（${stateLabel}）: ${latest.name} - ${(result && result.Message) || '未知错误'}`, { accountId: key });
+                        const codeTag = result && (result.wxCode !== null && result.wxCode !== undefined)
+                            ? ` [wxCode=${result.wxCode}${result.wxStage ? ' stage=' + result.wxStage : ''}]` : '';
+                        log('错误', `微信凭证保活失败（${stateLabel}）: ${latest.name} - ${(result && result.Message) || '未知错误'}${codeTag}`, {
+                            accountId: key,
+                            wxCode: result && result.wxCode,
+                            wxStage: result && result.wxStage,
+                            definitive,
+                        });
                     } else {
                         consecutiveFailures = 0;
                     }
