@@ -123,7 +123,8 @@ router.beforeEach(async (to, _from) => {
   }
 
   // 排行榜可见范围：管理员在后台设为「仅超级管理员」时，普通用户越权回概览
-  if (to.name === 'coin-rank') {
+  // 农场侧（coin-rank）与牧场侧（ranch-coin-rank）共用同一份数据，受同一开关约束。
+  if (to.name === 'coin-rank' || to.name === 'ranch-coin-rank') {
     try {
       const userStore = useUserStore()
       if (!userStore.canViewCoinRank)

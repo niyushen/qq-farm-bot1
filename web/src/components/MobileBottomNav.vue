@@ -2,20 +2,26 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { getSpaceMenu } from '@/router/menu'
+import { useUserStore } from '@/stores/user'
+import { resolveMobileNavItems } from '@/utils/mobile-bottom-nav'
 
 const route = useRoute()
+const userStore = useUserStore()
 
-// 与侧栏使用同一份名称和图标，只在底栏放最常用的五项。
-const MOBILE_ITEMS: Array<[string, string?]> = [['dashboard'], ['personal'], ['activity-center'], ['game-mall', '商城'], ['Settings']]
-const items = computed(() => MOBILE_ITEMS.flatMap(([name, shortLabel]) => {
-  const inRanch = route.meta.gameSpace === 'ranch'
-  const item = getSpaceMenu(inRanch).find(item => item.name === `${inRanch ? 'ranch-' : ''}${name}`)
-  return item ? [{ path: `/${item.path}`, label: shortLabel || item.label, icon: item.icon }] : []
+// 与侧栏使用同一份名称和图标，只在底栏放最常用的几项。
+// 第四项为排行榜（原为商城）；排行榜可见范围受后台开关控制，隐藏时整列消失。
+const items = computed(() => resolveMobileNavItems(getSpaceMenu(route.meta.gameSpace === 'ranch'), {
+  inRanch: route.meta.gameSpace === 'ranch',
+  canViewCoinRank: userStore.canViewCoinRank,
 }))
 </script>
 
 <template>
-  <nav class="mobile-bottom-nav lg:hidden" aria-label="主要导航">
+  <nav
+    class="mobile-bottom-nav lg:hidden"
+    aria-label="主要导航"
+    :style="{ '--mobile-nav-columns': String(items.length || 1) }"
+  >
     <RouterLink
       v-for="item in items"
       :key="item.path"
@@ -37,7 +43,7 @@ const items = computed(() => MOBILE_ITEMS.flatMap(([name, shortLabel]) => {
   bottom: max(12px, env(safe-area-inset-bottom));
   left: max(14px, env(safe-area-inset-left));
   display: none;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--mobile-nav-columns, 5), minmax(0, 1fr));
   min-height: 66px;
   padding: 7px 8px;
   border: 1px solid rgba(58, 86, 68, 0.12);

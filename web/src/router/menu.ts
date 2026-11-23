@@ -102,6 +102,8 @@ export const ranchMenuRoutes: MenuItem[] = [
   { path: 'ranch/friends', name: 'ranch-friends', label: '好友', icon: 'i-carbon-user-multiple', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'friends' } },
   { path: 'ranch/strategy', name: 'ranch-strategy', label: '策略', icon: 'i-carbon-settings-adjust', component: () => import('@/views/RanchStrategy.vue'), meta: { gameSpace: 'ranch' } },
   { path: 'ranch/game-mall', name: 'ranch-game-mall', label: '游戏商城', icon: 'i-carbon-shopping-cart', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'mall' } },
+  // 牧场侧沿用农场侧的金币排行榜页面：统计口径是账号今日金币增加，与所在空间无关。
+  { path: 'ranch/coin-rank', name: 'ranch-coin-rank', label: '排行榜', icon: 'i-carbon-trophy', component: () => import('@/views/CoinRank.vue'), meta: { gameSpace: 'ranch' } },
   { path: 'ranch/settings', name: 'ranch-Settings', label: '设置', icon: 'i-carbon-settings', component: () => import('@/views/Settings.vue'), meta: { gameSpace: 'ranch' } },
 ]
 

@@ -43,22 +43,6 @@ const restList = computed(() => (data.value?.list || []).filter(item => item.ran
 /** 全员总增加：所有账号今日金币增加量之和（不受榜单仅展示前十影响） */
 const totalGain = computed(() => Number(data.value?.totalGoldGained || 0))
 
-/** 参与汇总的账号数：优先取后端字段，旧版后端回退为榜单实际条数 */
-const accountCount = computed(() => {
-  const reported = Number(data.value?.accountCount || 0)
-  if (reported > 0)
-    return reported
-  return (data.value?.list || []).length
-})
-
-/** 榜单展示条数 */
-const showLimit = computed(() => {
-  const reported = Number(data.value?.limit || 0)
-  if (reported > 0)
-    return reported
-  return (data.value?.list || []).length
-})
-
 /** 领奖台视觉顺序：亚军(2) - 冠军(1) - 季军(3) */
 const podiumOrder = computed(() => {
   const map = new Map(topThree.value.map(item => [item.rank, item]))
