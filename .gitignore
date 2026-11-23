@@ -61,3 +61,4 @@ protocol-captures/
 # Local workbench data and manual data backups (contain credentials, never commit)
 .workbuddy/
 core/data-backup-*/
+docker-compose.yml.bak-*
