@@ -134,35 +134,6 @@ useIntervalFn(() => loadRank(true), 30000)
             />
             <span class="rank-total__unit">金币</span>
           </div>
-          <div class="rank-total__meta">
-            <span class="rank-total__chip">
-              <span class="i-carbon-user-multiple" />
-              {{ accountCount }} 个账号
-            </span>
-            <span class="rank-total__chip">
-              <span class="i-carbon-ranking" />
-              榜单前 {{ showLimit }} 名
-            </span>
-            <span v-if="data?.date" class="rank-total__chip rank-total__chip--muted">
-              <span class="i-carbon-calendar" />
-              {{ data.date }}
-            </span>
-          </div>
-        </div>
-
-        <!-- 标题行 -->
-        <div class="flex items-center gap-3 border-t border-gray-100 pt-4 dark:border-gray-700/60">
-          <div class="h-11 w-11 flex shrink-0 items-center justify-center rounded-xl from-amber-400 to-yellow-500 bg-gradient-to-br text-white shadow-sm">
-            <span class="i-carbon-trophy text-2xl" />
-          </div>
-          <div>
-            <h2 class="text-gray-800 font-bold dark:text-gray-100">
-              今日农场金币增加排行榜
-            </h2>
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-              按今日各账号金币增加量实时排名（忽略升级等花费）· 每 30 秒自动更新
-            </p>
-          </div>
         </div>
       </div>
     </div>
