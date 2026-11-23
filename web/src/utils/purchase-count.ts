@@ -36,5 +36,8 @@ export function purchaseMaxCount(options: { limitRemaining?: number | null, cost
     if (affordable < maximum)
       maximum = affordable
   }
+  // 余额不足一份时下限为 1，提交时由余额校验兜底（上游 #179 前后的行为差异）
+  if (maximum < 1n && (options.costs || []).length > 0)
+    return 1
   return Number(maximum < 0n ? 0n : maximum)
 }

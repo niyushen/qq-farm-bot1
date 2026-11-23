@@ -85,6 +85,17 @@ const operations: OperationsMap = {
 
 /** 全期累计操作计数（跨天不重置，供「账号统计」卡片展示） */
 const totalOperations: Record<string, number> = {};
+/** 牧场场景独立计数（跨天重置，上游 PR #175/#179） */
+const ranchOperations: Record<string, number> = {
+    harvest: 0,
+    produce: 0,
+    helpFarming: 0,
+    steal: 0,
+};
+
+function restoreOperationCounts(target: Record<string, number>, saved: Record<string, number> = {}): void {
+    for (const key of Object.keys(target)) target[key] = Number(saved?.[key]) || 0;
+}
 
 let currentDateKey: string | null = null;
 
@@ -159,8 +170,16 @@ let currentAccountId: string | null = null;
 let sessionStartedAt = Date.now();
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-function recordOperation(type: string, count: number = 1): void {
+function recordOperation(type: string, count: number = 1, scene: 'farm' | 'ranch' = 'farm'): void {
     checkAndResetDailyStats();
+    if (scene === 'ranch') {
+        // 牧场计数独立于农场，避免同名键（harvest/steal 等）互相污染
+        if (ranchOperations[type] !== undefined) {
+            ranchOperations[type] += count;
+            scheduleSave();
+        }
+        return;
+    }
     if (operations[type] !== undefined) {
         operations[type] += count;
         totalOperations[type] = (totalOperations[type] || 0) + count;
@@ -173,9 +192,9 @@ function checkAndResetDailyStats(): void {
     const todayKey: string = getTodayKey();
     if (currentDateKey && currentDateKey !== todayKey) {
         console.warn(`[统计] 检测到跨天，重置每日统计 (${currentDateKey} -> ${todayKey})`);
-        Object.keys(operations).forEach((key: string) => {
-            operations[key] = 0;
-        });
+        restoreOperationCounts(operations);
+        restoreOperationCounts(ranchOperations);
+        // 全期累计跨天不重置，仅重置当日基线与今日收入
         dailyBaseline.date = todayKey;
         dailyBaseline.values = {};
         dailyGoldEarned.date = todayKey;
@@ -242,11 +261,11 @@ function scheduleSave(): void {
 
 function doSave(): void {
     if (!currentAccountId) return;
-    const todayKey: string = getTodayKey();
     const data: any = {
-        date: todayKey,
+        date: currentDateKey ?? getTodayKey(),
         operations: { ...operations },
         totalOperations: { ...totalOperations },
+        ranchOperations: { ...ranchOperations },
         initialState: { ...initialState },
         dailyBaseline: { date: dailyBaseline.date, values: { ...dailyBaseline.values } },
         dailyGoldEarned: { date: dailyGoldEarned.date, value: dailyGoldEarned.value },
@@ -280,20 +299,13 @@ function initStatsWithPersistence(accountId: string, gold: number, exp: number, 
     currentDateKey = todayKey;
     const saved: any = loadPersistedStats(accountId);
 
-    if (saved && saved.date === todayKey) {
-        Object.keys(saved.operations || {}).forEach((key: string) => {
-            if (operations[key] !== undefined) {
-                operations[key] = Number(saved.operations[key]) || 0;
-            }
-        });
+    const isToday = saved?.date === todayKey;
+    restoreOperationCounts(operations, isToday ? saved.operations : undefined);
+    restoreOperationCounts(ranchOperations, isToday ? saved.ranchOperations : undefined);
+    if (isToday) {
         console.warn(`[统计] 已恢复今日统计数据: ${JSON.stringify(saved.operations)}`);
-    } else {
-        Object.keys(operations).forEach((key: string) => {
-            operations[key] = 0;
-        });
-        if (saved) {
-            console.warn(`[统计] 日期已变更，重置统计 (${saved.date} -> ${todayKey})`);
-        }
+    } else if (saved) {
+        console.warn(`[统计] 日期已变更，重置统计 (${saved.date} -> ${todayKey})`);
     }
 
     // 「今日增加」基线：同日重启后沿用已保存的首次余额，跨日则重新建立
@@ -440,6 +452,7 @@ function getStats(statusData: any, userState: any, connected: boolean, limits: a
         sessionElapsedSeconds: Math.max(0, (Date.now() - sessionStartedAt) / 1000),
         operations: operationsSnapshot,
         operationsTotal: { ...totalOperations },
+        ranchOperations: { ...ranchOperations },
         sessionExpGained: session.expGained,
         sessionGoldGained: session.goldGained,
         sessionCouponGained: session.couponGained,
