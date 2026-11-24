@@ -34,6 +34,9 @@ RUN --mount=type=cache,id=qq-farm-pnpm-store,target=/pnpm/store,sharing=locked \
 FROM workspace-deps AS web-builder
 
 COPY web ./web
+# web/src/utils/notification-template.ts 跨目录引用 core/src/config/*.json，
+# 该阶段必须同时提供 core/src/config，否则 Vite 无法解析（Docker 构建无仓库根目录）。
+COPY core/src/config ./core/src/config
 RUN pnpm -C web build
 
 FROM workspace-deps AS core-builder
