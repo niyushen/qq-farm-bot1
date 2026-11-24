@@ -469,12 +469,26 @@ async function runFarmOperation(
                 if (propagateErrors) throw e;
             }
         }
-        if (fertilizerConfig === 'smart' || isRipeningOnlyMode(fertilizerConfig)) {
+        // 巡田施肥：smart/催熟模式照常；另外只要开了「2x2催熟」，即使策略为不施肥，
+        // 也要进入施肥流程 —— runFertilizerByConfig 内部会单独催熟 2×2 作物。
+        if (fertilizerConfig === 'smart' || isRipeningOnlyMode(fertilizerConfig) || isAutomationOn('fertilizer_2x2_ripen')) {
             try {
-                const count = await runRipeningFertilizer(getAutomation(), fertilizerSnapshot, propagateErrors);
-                if (count > 0) {
-                    actions.push(`催熟${count}`);
-                    await harvestMatureOwnLandsOnce(actions, propagateErrors);
+                if (isAutomationOn('fertilizer_2x2_ripen')) {
+                    const result = await runFertilizerByConfig([], { skipNormal: true, propagateErrors });
+                    if (result.organic > 0) {
+                        actions.push(`2x2催熟${result.organic}`);
+                        await harvestMatureOwnLandsOnce(actions, propagateErrors);
+                    }
+                    else if (result.normal > 0) {
+                        actions.push(`2x2催熟${result.normal}`);
+                    }
+                }
+                else {
+                    const count = await runRipeningFertilizer(getAutomation(), fertilizerSnapshot, propagateErrors);
+                    if (count > 0) {
+                        actions.push(`催熟${count}`);
+                        await harvestMatureOwnLandsOnce(actions, propagateErrors);
+                    }
                 }
             } catch (e: any) {
                 logWarn('施肥', `巡田时施肥失败: ${e.message}`);

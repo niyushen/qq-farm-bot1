@@ -107,6 +107,7 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
         sell: true,
         fertilizer: 'none',
         fertilizer_multi_season: true,
+        fertilizer_2x2_ripen: false,
         fertilizer_land_types: [...DEFAULT_FERTILIZER_LAND_TYPES],
         fertilizer_smart_seconds: 300,
         skip_own_weed_bug: true,

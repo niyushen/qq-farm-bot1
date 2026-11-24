@@ -1007,6 +1007,38 @@ function resolveOccupiedLandIds(anchorLandId: number, lands: any[] | undefined |
     return { masterLandId: masterLandId || anchorId, occupiedLandIds: [...occupied] };
 }
 
+/**
+ * 2×2 催熟目标识别：找出 2×2 多格作物的主地块，并排除所有从属地块。
+ * 返回的 excludedIds 包含主地块与从属地块，常规施肥要把它们整体剔除，
+ * 避免普通肥只落在合种作物的其中一块地上。
+ */
+function pickRipen2x2Lands(lands: any[]): { size2LandIds: number[]; excludedIds: Set<number> } {
+    const list: any[] = Array.isArray(lands) ? lands : [];
+    const landsMap = buildLandMap(list);
+    const isSlave = (land: any): boolean => {
+        const masterId = toNum(land && land.master_land_id);
+        return (masterId > 0 && masterId !== toNum(land && land.id)) || isOccupiedSlaveLand(land, landsMap);
+    };
+    const size2LandIds: number[] = [];
+    const excludedIds = new Set<number>();
+    for (const land of list) {
+        if (!land) continue;
+        const landId = toNum(land && land.id);
+        if (!landId) continue;
+        if (isSlave(land)) {
+            excludedIds.add(landId);
+            continue;
+        }
+        if (land.unlocked === false) continue;
+        const { occupiedLandIds } = getDisplayLandContext(land, landsMap);
+        const plantCfg = getPlantById(toNum(land.plant && land.plant.id));
+        const plantSize = Math.max(1, toNum(plantCfg && plantCfg.size) || 1);
+        if (plantSize === 2 || occupiedLandIds.length === 4) size2LandIds.push(landId);
+    }
+    for (const landId of size2LandIds) excludedIds.add(landId);
+    return { size2LandIds, excludedIds };
+}
+
 function getLandLifecycleState(land: any): string {
     if (!land) return 'unknown';
     const plant = land.plant;
@@ -1143,6 +1175,7 @@ async function resolveRemovableHarvestedLands(harvestedLandIds: number[], harves
 }
 
 module.exports = {
+    pickRipen2x2Lands,
     getCurrentPhase,
     getPlantStatusFlags,
     getPlantMutantConfigIds,

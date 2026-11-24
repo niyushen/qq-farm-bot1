@@ -45,6 +45,8 @@ export interface AutomationConfig extends RanchAutomationConfig {
   sell: boolean;
   fertilizer: FertilizerMode;
   fertilizer_multi_season: boolean;
+  /** 2×2 多格作物催熟：开启后对生长中的 2×2 作物单独施普通肥并连续施有机肥直至成熟。 */
+  fertilizer_2x2_ripen: boolean;
   fertilizer_land_types: FertilizerLandType[];
   fertilizer_smart_seconds: number;
   skip_own_weed_bug: boolean;

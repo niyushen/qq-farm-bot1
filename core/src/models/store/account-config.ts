@@ -115,6 +115,7 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         automation: { ...cfg.automation },
         plantingStrategy: cfg.plantingStrategy,
         preferredSeedId: cfg.preferredSeedId,
+        capitalMode: { ...cfg.capitalMode },
         intervals: { ...cfg.intervals },
         friendQuietHours: { ...cfg.friendQuietHours },
         knownFriendGids: [...(cfg.knownFriendGids || [])],
@@ -185,6 +186,10 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
 
     if (cfg.preferredSeedId !== undefined && cfg.preferredSeedId !== null) {
         next.preferredSeedId = Math.max(0, Number.parseInt(cfg.preferredSeedId, 10) || 0);
+    }
+
+    if (cfg.capitalMode && typeof cfg.capitalMode === 'object') {
+        next.capitalMode = normalizeCapitalMode(cfg.capitalMode, next.capitalMode);
     }
 
     if (cfg.intervals && typeof cfg.intervals === 'object') {
