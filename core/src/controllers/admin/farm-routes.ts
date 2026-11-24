@@ -620,7 +620,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
     });
 
     // API: 停止账号
-    app.post('/api/accounts/:id/stop', (req: Request, res: Response) => {
+    app.post('/api/accounts/:id/stop', async (req: Request, res: Response) => {
         try {
             const currentUser = (req as AuthenticatedRequest).currentUser || null;
             const accountId = resolveAccId(ctx, req.params.id, currentUser);
@@ -629,7 +629,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
                 return res.status(403).json({ ok: false, error: '无权操作该账号' });
             }
 
-            const ok = ctx.provider.stopAccount(accountId);
+            const ok = await ctx.provider.stopAccount(accountId);
             if (!ok) {
                 return res.status(404).json({ ok: false, error: 'Account not found' });
             }

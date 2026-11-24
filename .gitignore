@@ -65,3 +65,8 @@ docker-compose.yml.bak-*
 
 # Host-mounted runtime logs directory (bind-mounted to container data/logs)
 logs/
+
+# Session host runtime, release backups and workspace package builds (upstream)
+/runtime/
+/releases/
+/packages/*/dist/

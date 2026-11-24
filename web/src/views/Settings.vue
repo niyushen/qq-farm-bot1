@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import type { ReleasesSummary, RollbackReleaseItem } from '@/components/settings/ReleaseRollbackPanel.vue'
 import { NButton } from 'naive-ui/es/button'
 import { NTab } from 'naive-ui/es/tabs'
 import { NTimePicker } from 'naive-ui/es/time-picker'
 import { storeToRefs } from 'pinia'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api, { getApiErrorMessage } from '@/api'
 import AccountModal from '@/components/AccountModal.vue'
@@ -13,15 +14,19 @@ import PageTabs from '@/components/PageTabs.vue'
 import AutomationSettingsForm from '@/components/settings/AutomationSettingsForm.vue'
 import BagSeedPriorityItem from '@/components/settings/BagSeedPriorityItem.vue'
 import OfflineReminderCard from '@/components/settings/OfflineReminderCard.vue'
+import ReleaseRollbackPanel from '@/components/settings/ReleaseRollbackPanel.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
+import { useUnsavedEditGuard } from '@/composables/useUnsavedEditGuard'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
+import { useAppUpdateStore } from '@/stores/app-update'
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { formatExpiresAt, formatRemaining, useUserStore } from '@/stores/user'
 import type { Redemption } from '@/stores/user'
+import { useToastStore } from '@/stores/toast'
 import AdminPanel from '@/views/AdminPanel.vue'
 
 const fertilizerLandTypeOptions = [
@@ -40,12 +45,14 @@ const accountStore = useAccountStore()
 const userStore = useUserStore()
 const settingStore = useSettingStore()
 const statusStore = useStatusStore()
+const appUpdateStore = useAppUpdateStore()
+const toast = useToastStore()
 
-type SettingsTab = 'account' | 'strategy' | 'automation' | 'notification' | 'my-account' | 'admin-panel'
+type SettingsTab = 'account' | 'strategy' | 'automation' | 'system' | 'notification' | 'my-account' | 'admin-panel'
 const storedTab = localStorage.getItem('settings-active-tab')
-const settingsTabKeys: SettingsTab[] = ['account', 'strategy', 'automation', 'notification', 'my-account', 'admin-panel']
+const settingsTabKeys: SettingsTab[] = ['account', 'strategy', 'automation', 'system', 'notification', 'my-account', 'admin-panel']
 // 牧场的自动化与养殖策略已移到「牧场策略」页，设置页只保留账号与系统。
-const ranchTabKeys: SettingsTab[] = ['account']
+const ranchTabKeys: SettingsTab[] = ['account', 'system']
 const queryTab = String(route.query.tab || '')
 const initialTabRaw = settingsTabKeys.includes(queryTab as SettingsTab)
   ? queryTab as SettingsTab
@@ -77,6 +84,7 @@ const tabs = [
   { key: 'account', label: '账号管理', icon: 'i-carbon-user-profile' },
   { key: 'strategy', label: '策略设置', icon: 'i-carbon-settings-adjust' },
   { key: 'automation', label: '自动控制', icon: 'i-carbon-settings-adjust' },
+  { key: 'system', label: '系统设置', icon: 'i-carbon-settings' },
   { key: 'notification', label: '通知设置', icon: 'i-carbon-notification' },
   { key: 'my-account', label: '我的账号', icon: 'i-carbon-user-avatar' },
   { key: 'admin-panel', label: '管理后台', icon: 'i-carbon-user-admin' },
@@ -294,6 +302,8 @@ onMounted(async () => {
   // 未选择账号时也要能加载自己的下线提醒配置（通知设置页）
   if (!currentAccountId.value)
     await settingStore.fetchUserSettings()
+  // 上游 PR #182：系统配置、设备预设与在线更新状态
+  await Promise.all([loadSystemConfig(), loadDevicePresets(), loadUpdateStatus()])
 })
 
 function openSettings(account: any) {
@@ -908,6 +918,10 @@ watch(() => [
   }
 }, { immediate: true })
 
+const savedStrategySnapshot = ref('')
+const savedAutomationSnapshot = ref('')
+const savedOfflineSnapshot = ref('')
+
 function syncLocalStrategySettings() {
   if (settings.value) {
     localStrategySettings.value = JSON.parse(JSON.stringify({
@@ -931,6 +945,7 @@ function syncLocalStrategySettings() {
         ...(settings.value.friendQuietHours || {}),
       },
     }))
+    savedStrategySnapshot.value = JSON.stringify(localStrategySettings.value)
   }
 }
 
@@ -943,7 +958,7 @@ async function loadStrategyData(accountId = currentAccountId.value) {
     return
   syncLocalStrategySettings()
   syncLocalAutomationSettings()
-  syncLocalOfflineSettings()
+  syncLocalOfflineSettings(true)
   if (isAccountConnected(accountId))
     await fetchSeedOptions(accountId)
 }
@@ -980,6 +995,9 @@ async function saveStrategySettings() {
 }
 
 watch(currentAccountId, (accountId) => {
+  savedOfflineSnapshot.value = ''
+  savedAutomationSnapshot.value = ''
+  savedStrategySnapshot.value = ''
   strategySaving.value = false
   automationSaving.value = false
   draggingBagSeedId.value = null
@@ -1178,6 +1196,7 @@ function syncLocalAutomationSettings() {
     localAutomationSettings.value.autoAcceptHarvestStealEnabled = settings.value.autoAcceptHarvestStealEnabled ?? true
     localAutomationSettings.value.autoAcceptHarvestStealHarvest = settings.value.autoAcceptHarvestStealHarvest ?? 8
     localAutomationSettings.value.autoAcceptHarvestStealSteal = settings.value.autoAcceptHarvestStealSteal ?? 1
+    savedAutomationSnapshot.value = JSON.stringify(localAutomationSettings.value)
   }
 }
 
@@ -1318,6 +1337,17 @@ const CHANNEL_DOCS: Record<string, string> = {
 const offlineChannel = computed(() => String(localOffline.value.channel || '').trim().toLowerCase())
 const isDingTalkChannel = computed(() => offlineChannel.value === 'dingtalk')
 const isSmtpChannel = computed(() => offlineChannel.value === 'smtp')
+const isMeowChannel = computed(() => offlineChannel.value === 'meow')
+// 上游 PR #182 的系统设置页内联了通知配置 UI，需要以下渠道相关展示项
+const offlineChannelUsesEndpoint = computed(() => offlineChannel.value === 'webhook' || isDingTalkChannel.value)
+const offlineEndpointLabel = computed(() => isDingTalkChannel.value ? 'Webhook 地址' : '接口地址')
+const offlineEndpointPlaceholder = computed(() => isDingTalkChannel.value
+  ? '从钉钉群机器人设置页复制完整 Webhook'
+  : '接收消息的接口地址')
+const offlineTokenLabel = computed(() => isMeowChannel.value ? '昵称' : 'Token')
+const offlineTokenPlaceholder = computed(() => isMeowChannel.value
+  ? 'MeoW 注册昵称'
+  : '接收端 token')
 const currentChannelDocUrl = computed(() => CHANNEL_DOCS[offlineChannel.value] || '')
 
 function openChannelDocs() {
@@ -1327,7 +1357,9 @@ function openChannelDocs() {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-function syncLocalOfflineSettings() {
+function syncLocalOfflineSettings(force = false) {
+  if (!force && savedOfflineSnapshot.value && JSON.stringify(localOffline.value) !== savedOfflineSnapshot.value)
+    return
   if (settings.value?.offlineReminder) {
     const saved = JSON.parse(JSON.stringify(settings.value.offlineReminder))
     const next = {
@@ -1360,6 +1392,7 @@ function syncLocalOfflineSettings() {
     }
 
     localOffline.value = next
+    savedOfflineSnapshot.value = JSON.stringify(next)
   }
 }
 
@@ -1406,7 +1439,7 @@ function validateOfflineForm(): string {
 }
 
 watch(settings, () => {
-  syncLocalOfflineSettings()
+  syncLocalOfflineSettings(false)
 }, { deep: true })
 
 async function handleChangePassword() {
@@ -1456,6 +1489,7 @@ async function handleSaveOffline() {
     const res = await settingStore.saveOfflineConfig(localOffline.value)
 
     if (res.ok) {
+      savedOfflineSnapshot.value = JSON.stringify(localOffline.value)
       showAlert('下线提醒设置已保存', 'primary')
     }
     else {
@@ -1493,6 +1527,456 @@ async function handleTestOffline() {
   }
 }
 
+const systemConfigSaving = ref(false)
+const systemConfigLoading = ref(false)
+const loginSettingsSaving = ref(false)
+const savedSystemConfigSnapshot = ref('')
+const savedLoginSettingsSnapshot = ref('')
+
+const defaultDeviceInfo = {
+  os: 'Windows',
+  clientVersion: '',
+  sysSoftware: 'Windows 10',
+  network: 'wifi',
+  memory: '16384',
+  deviceId: 'DESKTOP-PC<WPC>',
+  userAgent: '',
+}
+
+const localSystemConfig = ref({
+  serverUrl: '',
+  clientVersion: '',
+  wxClientVersion: '',
+  platform: 'qq',
+  os: 'Windows',
+  timeZone: 'Asia/Shanghai',
+  deviceInfo: { ...defaultDeviceInfo },
+})
+const defaultSystemConfig = ref({
+  serverUrl: '',
+  clientVersion: '',
+  wxClientVersion: '',
+  platform: 'qq',
+  os: 'Windows',
+  timeZone: 'Asia/Shanghai',
+  deviceInfo: { ...defaultDeviceInfo },
+})
+const localLoginSettings = ref({
+  wechatQrLogin: true,
+  qqQrLogin: false,
+  napCatEndpoint: '',
+  napCatSignature: '',
+})
+const devicePresets = ref<any[]>([])
+const selectedPresetId = ref('')
+const timeZoneOptions = ref([
+  { label: '北京时间 / 上海（UTC+8）', value: 'Asia/Shanghai' },
+])
+const platformOptions = [
+  { label: 'QQ', value: 'qq' },
+  { label: '微信', value: 'wx' },
+]
+const osOptions = [
+  { label: 'Windows', value: 'Windows' },
+  { label: 'iOS', value: 'iOS' },
+  { label: 'Android', value: 'Android' },
+]
+
+function normalizeSystemConfig(source: any, fallback: any) {
+  return {
+    serverUrl: source?.serverUrl || '',
+    clientVersion: source?.clientVersion || '',
+    wxClientVersion: source?.wxClientVersion || fallback.wxClientVersion || '',
+    platform: source?.platform || 'qq',
+    os: source?.os || 'Windows',
+    timeZone: source?.timeZone || fallback.timeZone || 'Asia/Shanghai',
+    deviceInfo: source?.deviceInfo ? { ...fallback.deviceInfo, ...source.deviceInfo } : { ...fallback.deviceInfo },
+  }
+}
+
+function normalizeLoginSettings(source: any) {
+  return {
+    wechatQrLogin: typeof source?.wechatQrLogin === 'boolean' ? source.wechatQrLogin : true,
+    qqQrLogin: typeof source?.qqQrLogin === 'boolean' ? source.qqQrLogin : false,
+    napCatEndpoint: typeof source?.napCatEndpoint === 'string' ? source.napCatEndpoint.trim() : '',
+    napCatSignature: typeof source?.napCatSignature === 'string' ? source.napCatSignature.trim() : '',
+  }
+}
+
+async function loadDevicePresets() {
+  try {
+    const { data } = await api.get('/api/settings/device-presets')
+    if (data?.ok && Array.isArray(data.data))
+      devicePresets.value = data.data
+  }
+  catch (e) {
+    console.error('加载设备预设失败:', e)
+  }
+}
+
+function applyDevicePreset(presetId: string) {
+  const preset = devicePresets.value.find(item => item.id === presetId)
+  if (!preset)
+    return
+  const deviceInfo = { ...defaultDeviceInfo, ...(preset.deviceInfo || {}) }
+  localSystemConfig.value = {
+    ...localSystemConfig.value,
+    os: deviceInfo.os || 'Windows',
+    clientVersion: deviceInfo.clientVersion || '',
+    deviceInfo,
+  }
+  selectedPresetId.value = presetId
+}
+
+async function loadSystemConfig() {
+  systemConfigLoading.value = true
+  try {
+    const { data } = await api.get('/api/settings/system-config')
+    if (data?.ok) {
+      if (Array.isArray(data.data.timeZones) && data.data.timeZones.length) {
+        timeZoneOptions.value = data.data.timeZones.map((option: any) => ({
+          label: String(option.label || option.value || ''),
+          value: String(option.value || 'Asia/Shanghai'),
+        }))
+      }
+      defaultSystemConfig.value = normalizeSystemConfig(data.data.default, defaultSystemConfig.value)
+      localSystemConfig.value = normalizeSystemConfig(data.data.saved || data.data.default, defaultSystemConfig.value)
+      localLoginSettings.value = normalizeLoginSettings(data.data.loginSettings)
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
+      savedLoginSettingsSnapshot.value = JSON.stringify(localLoginSettings.value)
+    }
+  }
+  catch (e) {
+    console.error('加载系统配置失败:', e)
+  }
+  finally {
+    systemConfigLoading.value = false
+  }
+}
+
+async function handleSaveLoginSettings() {
+  if (localLoginSettings.value.qqQrLogin
+    && (!localLoginSettings.value.napCatEndpoint.trim() || !localLoginSettings.value.napCatSignature.trim())) {
+    showAlert('开启 QQ 扫码登录前，请配置 NapCat 接口地址和接口签名', 'danger')
+    return
+  }
+  loginSettingsSaving.value = true
+  try {
+    const { data } = await api.post('/api/settings/login-config', localLoginSettings.value)
+    if (data?.ok) {
+      localLoginSettings.value = normalizeLoginSettings(data.data)
+      savedLoginSettingsSnapshot.value = JSON.stringify(localLoginSettings.value)
+    }
+    showAlert(data?.ok ? '登录设置已保存' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
+  }
+  catch (e: any) {
+    showAlert(`保存失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
+  }
+  finally {
+    loginSettingsSaving.value = false
+  }
+}
+
+async function handleSaveSystemConfig() {
+  systemConfigSaving.value = true
+  try {
+    localSystemConfig.value.clientVersion = localSystemConfig.value.deviceInfo.clientVersion
+    localSystemConfig.value.os = localSystemConfig.value.deviceInfo.os
+    const { data } = await api.post('/api/settings/system-config', localSystemConfig.value)
+    if (data?.ok)
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
+    showAlert(data?.ok ? '系统配置已保存，连接参数在下次登录时生效' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
+  }
+  catch (e: any) {
+    showAlert(`保存失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
+  }
+  finally {
+    systemConfigSaving.value = false
+  }
+}
+
+async function handleResetSystemConfig() {
+  systemConfigSaving.value = true
+  try {
+    const { data } = await api.post('/api/settings/system-config/reset')
+    if (data?.ok) {
+      localSystemConfig.value = normalizeSystemConfig(data.data.saved, defaultSystemConfig.value)
+      selectedPresetId.value = ''
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
+      showAlert('系统配置已重置，连接参数在下次登录时生效', 'primary')
+    }
+    else {
+      showAlert(getApiErrorMessage(data, '重置失败'), 'danger')
+    }
+  }
+  catch (e: any) {
+    showAlert(`重置失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
+  }
+  finally {
+    systemConfigSaving.value = false
+  }
+}
+const isSystemConfigDirty = computed(() =>
+  Boolean(savedSystemConfigSnapshot.value)
+  && JSON.stringify(localSystemConfig.value) !== savedSystemConfigSnapshot.value,
+)
+const isLoginSettingsDirty = computed(() =>
+  Boolean(savedLoginSettingsSnapshot.value)
+  && JSON.stringify(localLoginSettings.value) !== savedLoginSettingsSnapshot.value,
+)
+const isOfflineDirty = computed(() =>
+  Boolean(savedOfflineSnapshot.value)
+  && JSON.stringify(localOffline.value) !== savedOfflineSnapshot.value,
+)
+const isPasswordFormDirty = computed(() => Boolean(passwordForm.value.old || passwordForm.value.new || passwordForm.value.confirm))
+const hasUnsavedSettings = computed(() =>
+  showModal.value
+  || (Boolean(savedStrategySnapshot.value) && JSON.stringify(localStrategySettings.value) !== savedStrategySnapshot.value)
+  || (Boolean(savedAutomationSnapshot.value) && JSON.stringify(localAutomationSettings.value) !== savedAutomationSnapshot.value)
+  || isSystemConfigDirty.value
+  || isLoginSettingsDirty.value
+  || isOfflineDirty.value
+  || isPasswordFormDirty.value,
+)
+useUnsavedEditGuard(hasUnsavedSettings)
+
+// ==================== 版本更新 ====================
+interface IncomingCommitItem {
+  hash: string
+  shortHash: string
+  subject: string
+  author: string
+  timestampMs: number
+}
+
+interface PanelUpdateJob {
+  id: string
+  pid?: number
+  status: 'running' | 'succeeded' | 'failed'
+  phase: string
+  detail?: string
+  startedAt: number
+  updatedAt: number
+  finishedAt?: number
+  exitCode?: number | null
+  error?: string
+  fromCommit?: string
+  targetCommit?: string
+  recentLines: string[]
+}
+
+interface SystemUpdateState {
+  mode: 'source' | 'docker' | 'binary' | 'unknown'
+  gitSupported: boolean
+  unsupportedReason: string
+  applySupported: boolean
+  applyUnsupportedReason: string
+  branch: string
+  detached: boolean
+  commit: string
+  shortCommit: string
+  commitSubject: string
+  startupCommit: string
+  needsApply: boolean
+  upstream: string
+  remote: string
+  remoteBranch: string
+  behindCount: number
+  aheadCount: number
+  dirtyFiles: string[]
+  incomingCommits: IncomingCommitItem[]
+  canCheck: boolean
+  canPull: boolean
+  canApply: boolean
+  deployBusy: boolean
+  lastCheckedAt: number | null
+  lastCheckError: string
+  lastPulledAt: number | null
+  job: PanelUpdateJob | null
+  releases: RollbackReleaseItem[]
+  releasesSummary: ReleasesSummary
+}
+
+const emptyReleasesSummary: ReleasesSummary = {
+  totalCount: 0,
+  compatibleCount: 0,
+  outdatedCount: 0,
+  totalSizeBytes: 0,
+  outdatedSizeBytes: 0,
+  orphanHostCount: 0,
+  orphanWebCount: 0,
+  orphanSizeBytes: 0,
+}
+
+const updateStatus = ref<SystemUpdateState | null>(null)
+const updateLoading = ref(false)
+const updateChecking = ref(false)
+const updatePulling = ref(false)
+const updateApplying = ref(false)
+const updateActionError = ref('')
+const updateRequestConfig = { skipErrorToast: true, timeout: 90_000 }
+let updateViewActive = true
+let updatePollTimer: ReturnType<typeof setTimeout> | null = null
+
+function handleReleaseStatusUpdated(nextStatus: SystemUpdateState) {
+  updateStatus.value = nextStatus
+  scheduleUpdatePollIfBusy()
+}
+
+function clearUpdatePollTimer() {
+  if (updatePollTimer) {
+    clearTimeout(updatePollTimer)
+    updatePollTimer = null
+  }
+}
+
+function scheduleUpdatePollIfBusy() {
+  clearUpdatePollTimer()
+  if (!updateViewActive)
+    return
+  const status = updateStatus.value
+  if (status?.job?.status === 'running' || status?.deployBusy) {
+    updatePollTimer = setTimeout(() => {
+      void loadUpdateStatus({ silent: true })
+    }, 2000)
+  }
+}
+
+async function loadUpdateStatus(options: { silent?: boolean } = {}) {
+  if (!options.silent) {
+    updateActionError.value = ''
+    updateLoading.value = true
+  }
+  try {
+    const { data } = await api.get('/api/system/update/status', updateRequestConfig)
+    if (data?.ok && data.data) {
+      updateStatus.value = data.data
+      scheduleUpdatePollIfBusy()
+    }
+  }
+  catch (e: any) {
+    if (!options.silent)
+      updateActionError.value = getApiErrorMessage(e, '获取更新状态失败')
+    if (updateStatus.value?.job?.status === 'running')
+      scheduleUpdatePollIfBusy()
+  }
+  finally {
+    if (!options.silent)
+      updateLoading.value = false
+  }
+}
+
+async function handleCheckSystemUpdates() {
+  updateChecking.value = true
+  updateActionError.value = ''
+  try {
+    const { data } = await api.post('/api/system/update/check', {}, updateRequestConfig)
+    if (data?.ok && data.data) {
+      updateStatus.value = data.data
+      scheduleUpdatePollIfBusy()
+      if (data.data.behindCount > 0)
+        toast.info(`发现 ${data.data.behindCount} 个可拉取更新`)
+      else
+        toast.success('当前分支已是最新')
+    }
+    else {
+      updateActionError.value = getApiErrorMessage(data, '检查更新失败')
+    }
+  }
+  catch (e: any) {
+    updateActionError.value = getApiErrorMessage(e, '检查更新失败')
+  }
+  finally {
+    updateChecking.value = false
+  }
+}
+
+async function handlePullSystemUpdates() {
+  updatePulling.value = true
+  updateActionError.value = ''
+  try {
+    const { data } = await api.post('/api/system/update/pull', {}, updateRequestConfig)
+    if (data?.ok && data.data?.status) {
+      updateStatus.value = data.data.status
+      scheduleUpdatePollIfBusy()
+      if (data.data.pulled)
+        toast.success(`代码已更新到 ${data.data.toCommit}`)
+      else
+        toast.info('当前没有可拉取的提交')
+    }
+    else {
+      updateActionError.value = getApiErrorMessage(data, '拉取更新失败')
+    }
+  }
+  catch (e: any) {
+    updateActionError.value = getApiErrorMessage(e, '拉取更新失败')
+  }
+  finally {
+    updatePulling.value = false
+  }
+}
+
+async function handleApplySystemUpdate(pullFirst: boolean) {
+  updateApplying.value = true
+  updateActionError.value = ''
+  try {
+    const { data } = await api.post('/api/system/update/apply', { pullFirst }, updateRequestConfig)
+    if (data?.ok && data.data?.status) {
+      updateStatus.value = data.data.status
+      scheduleUpdatePollIfBusy()
+      toast.info('已在后台开始更新，构建期间可继续操作')
+    }
+    else {
+      updateActionError.value = getApiErrorMessage(data, '启动在线更新失败')
+    }
+  }
+  catch (e: any) {
+    updateActionError.value = getApiErrorMessage(e, '启动在线更新失败')
+  }
+  finally {
+    updateApplying.value = false
+  }
+}
+
+/** 标题行的一句话状态，按任务、待更新、本地异常、最新的优先级取一项。 */
+const updateHeadline = computed<{ label: string, tone: 'busy' | 'pending' | 'warn' | 'ok' | 'muted' }>(() => {
+  const status = updateStatus.value
+  if (!status)
+    return { label: '', tone: 'muted' }
+  if (status.job?.status === 'running' || status.deployBusy)
+    return { label: '更新中', tone: 'busy' }
+  if (!status.gitSupported)
+    return { label: '不支持在线更新', tone: 'muted' }
+  if (status.behindCount > 0)
+    return { label: `${status.behindCount} 个可更新`, tone: 'pending' }
+  if (status.needsApply)
+    return { label: '待应用', tone: 'pending' }
+  if (status.dirtyFiles.length || status.aheadCount > 0)
+    return { label: '本地有改动', tone: 'warn' }
+  if (!status.lastCheckedAt)
+    return { label: '未检查', tone: 'muted' }
+  return { label: '已是最新', tone: 'ok' }
+})
+
+function formatUpdateTimestamp(ms: number | null | undefined): string {
+  if (!ms)
+    return '未检查'
+  const date = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getMonth() + 1}-${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+watch(() => statusStore.realtimeReconnectCount, (count) => {
+  if (count <= 0)
+    return
+  void loadUpdateStatus({ silent: true })
+  void appUpdateStore.checkVersionNow(true)
+})
+
+onBeforeUnmount(() => {
+  updateViewActive = false
+  clearUpdatePollTimer()
+})
 </script>
 
 <template>
@@ -2265,6 +2749,555 @@ async function handleTestOffline() {
             @save="handleSaveOffline"
           />
         </div>
+        <!-- 系统设置 -->
+        <div v-else-if="activeTab === 'system'" class="space-y-4">
+          <h3 class="text-lg text-gray-900 font-bold dark:text-gray-100">
+            系统设置
+          </h3>
+
+          <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <div class="min-w-0 space-y-4">
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/25 dark:text-blue-400">
+                    <span class="i-carbon-settings-adjust text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      运行环境
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      服务器连接、时区与客户端设备参数
+                    </p>
+                  </div>
+                </div>
+
+                <div v-if="systemConfigLoading" class="py-8 text-center text-gray-500">
+                  <span class="i-svg-spinners-90-ring-with-bg inline-block text-2xl" />
+                </div>
+                <div v-else class="space-y-3">
+                  <div v-if="devicePresets.length" class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">设备预设</label>
+                    <div class="flex flex-wrap gap-2">
+                      <NButton
+                        v-for="preset in devicePresets"
+                        :key="preset.id"
+                        size="small"
+                        :type="selectedPresetId === preset.id ? 'primary' : 'default'"
+                        :secondary="selectedPresetId !== preset.id"
+                        :title="preset.description"
+                        @click="applyDevicePreset(preset.id)"
+                      >
+                        {{ preset.name }}
+                      </NButton>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <BaseInput
+                      v-model="localSystemConfig.serverUrl"
+                      label="服务器地址"
+                      type="text"
+                      placeholder="wss://..."
+                    />
+                    <div>
+                      <BaseSelect
+                        v-model="localSystemConfig.timeZone"
+                        label="系统时区"
+                        :options="timeZoneOptions"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+                        礼包、任务、安静时段和日志均以此时区为准。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                      <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">平台</label>
+                      <div class="flex flex-wrap gap-2">
+                        <NButton
+                          v-for="option in platformOptions"
+                          :key="option.value"
+                          size="small"
+                          :type="localSystemConfig.platform === option.value ? 'primary' : 'default'"
+                          :secondary="localSystemConfig.platform !== option.value"
+                          @click="localSystemConfig.platform = option.value"
+                        >
+                          {{ option.label }}
+                        </NButton>
+                      </div>
+                    </div>
+                    <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                      <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">系统</label>
+                      <div class="flex flex-wrap gap-2">
+                        <NButton
+                          v-for="option in osOptions"
+                          :key="option.value"
+                          size="small"
+                          :type="localSystemConfig.deviceInfo.os === option.value ? 'primary' : 'default'"
+                          :secondary="localSystemConfig.deviceInfo.os !== option.value"
+                          @click="localSystemConfig.deviceInfo.os = option.value; localSystemConfig.os = option.value"
+                        >
+                          {{ option.label }}
+                        </NButton>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.clientVersion"
+                      label="QQ 客户端版本"
+                      type="text"
+                      :placeholder="defaultSystemConfig.deviceInfo.clientVersion || '从服务器加载中...'"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.wxClientVersion"
+                      label="微信客户端版本"
+                      type="text"
+                      :placeholder="defaultSystemConfig.wxClientVersion || '从服务器加载中...'"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.sysSoftware"
+                      label="系统版本"
+                      type="text"
+                      placeholder="Windows 10"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.deviceId"
+                      label="设备标识"
+                      type="text"
+                      placeholder="DESKTOP-PC<WPC>"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.memory"
+                      label="内存 (MB)"
+                      type="text"
+                      placeholder="16384"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.network"
+                      label="网络"
+                      type="text"
+                      placeholder="wifi"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.userAgent"
+                      label="User-Agent"
+                      type="text"
+                      placeholder="Mozilla/5.0 ..."
+                    />
+                  </div>
+
+                  <div class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
+                    <BaseButton variant="secondary" size="sm" :loading="systemConfigSaving" @click="handleResetSystemConfig">
+                      重置
+                    </BaseButton>
+                    <BaseButton variant="primary" size="sm" :loading="systemConfigSaving" @click="handleSaveSystemConfig">
+                      保存运行环境
+                    </BaseButton>
+                  </div>
+                </div>
+              </section>
+
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-900/25 dark:text-violet-400">
+                    <span class="i-carbon-login text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      登录设置
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      控制添加账号时可用的扫码登录方式
+                    </p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <BaseSwitch v-model="localLoginSettings.wechatQrLogin" label="微信扫码登录" />
+                  </div>
+                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <BaseSwitch v-model="localLoginSettings.qqQrLogin" label="QQ扫码登录" />
+                  </div>
+                </div>
+
+                <div
+                  v-if="localLoginSettings.qqQrLogin"
+                  class="grid grid-cols-1 mt-4 gap-3 border border-gray-200 rounded-lg bg-gray-50/70 p-4 sm:grid-cols-2 dark:border-gray-700 dark:bg-gray-900/30"
+                >
+                  <BaseInput
+                    v-model="localLoginSettings.napCatEndpoint"
+                    label="NapCat接口地址"
+                    type="text"
+                    placeholder="http://127.0.0.1:6099"
+                  />
+                  <BaseInput
+                    v-model="localLoginSettings.napCatSignature"
+                    label="NapCat接口签名"
+                    type="password"
+                    placeholder="请输入 NapCat 接口签名"
+                  />
+                </div>
+
+                <div class="mt-3 flex justify-end border-t pt-3 dark:border-gray-700">
+                  <BaseButton
+                    variant="primary"
+                    size="sm"
+                    :loading="loginSettingsSaving"
+                    @click="handleSaveLoginSettings"
+                  >
+                    保存登录设置
+                  </BaseButton>
+                </div>
+              </section>
+            </div>
+
+            <div class="min-w-0 space-y-4">
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600 dark:bg-green-900/25 dark:text-green-400">
+                    <span class="i-carbon-notification text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      下线提醒
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      配置账号离线后的通知与清理
+                    </p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div class="min-w-0 flex flex-col gap-1.5">
+                    <div class="min-h-6 flex items-center justify-between gap-2">
+                      <span class="text-sm text-gray-700 font-medium dark:text-gray-300">推送渠道</span>
+                      <BaseButton
+                        variant="text"
+                        size="sm"
+                        :disabled="!currentChannelDocUrl"
+                        @click="openChannelDocs"
+                      >
+                        官方文档
+                      </BaseButton>
+                    </div>
+                    <BaseSelect
+                      v-model="localOffline.channel"
+                      :options="channelOptions"
+                    />
+                  </div>
+
+                  <BaseInput
+                    v-if="offlineChannelUsesEndpoint"
+                    v-model="localOffline.endpoint"
+                    :label="offlineEndpointLabel"
+                    type="text"
+                    :placeholder="offlineEndpointPlaceholder"
+                  />
+
+                  <BaseInput
+                    v-if="!isDingTalkChannel"
+                    v-model="localOffline.token"
+                    :label="offlineTokenLabel"
+                    type="text"
+                    :placeholder="offlineTokenPlaceholder"
+                  />
+
+                  <template v-else>
+                    <BaseInput
+                      v-model="localOffline.secret"
+                      label="加签密钥（可选）"
+                      type="password"
+                      placeholder="仅在机器人开启加签时填写 SEC..."
+                    />
+                    <p class="text-xs text-gray-500 leading-relaxed sm:col-span-2 dark:text-gray-400">
+                      从群机器人的设置页复制完整 Webhook；只有开启“加签”时才需要填写加签密钥。
+                    </p>
+                  </template>
+
+                  <BaseInput
+                    v-model="localOffline.title"
+                    label="标题"
+                    type="text"
+                    placeholder="提醒标题"
+                  />
+                  <BaseInput
+                    v-model.number="localOffline.offlineDeleteSec"
+                    label="离线删除账号 (秒)"
+                    type="number"
+                    min="0"
+                    placeholder="0 表示不删除"
+                  />
+                  <BaseInput
+                    v-model="localOffline.msg"
+                    label="内容"
+                    type="text"
+                    placeholder="提醒内容"
+                    class="sm:col-span-2"
+                  />
+                </div>
+
+                <div class="mt-3 flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
+                  <BaseButton
+                    variant="secondary"
+                    size="sm"
+                    :loading="offlineTesting"
+                    :disabled="offlineSaving"
+                    @click="handleTestOffline"
+                  >
+                    测试通知
+                  </BaseButton>
+                  <BaseButton
+                    variant="primary"
+                    size="sm"
+                    :loading="offlineSaving"
+                    :disabled="offlineTesting"
+                    @click="handleSaveOffline"
+                  >
+                    保存下线提醒设置
+                  </BaseButton>
+                </div>
+              </section>
+
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-400">
+                    <span class="i-carbon-password text-xl" />
+                  </div>
+                  <div>
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      修改管理员密码
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      更新后台管理登录凭据
+                    </p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <BaseInput
+                    v-model="passwordForm.old"
+                    label="当前密码"
+                    type="password"
+                    placeholder="当前管理员密码"
+                  />
+                  <BaseInput
+                    v-model="passwordForm.new"
+                    label="新密码"
+                    type="password"
+                    placeholder="至少 6 位"
+                  />
+                  <BaseInput
+                    v-model="passwordForm.confirm"
+                    label="确认新密码"
+                    type="password"
+                    placeholder="再次输入新密码"
+                  />
+                </div>
+
+                <div class="mt-3 flex items-center justify-end border-t pt-3 dark:border-gray-700">
+                  <BaseButton
+                    variant="primary"
+                    size="sm"
+                    :loading="passwordSaving"
+                    @click="handleChangePassword"
+                  >
+                    修改管理员密码
+                  </BaseButton>
+                </div>
+              </section>
+            </div>
+
+            <section class="system-update-card min-w-0 farm-card rounded-lg p-4 xl:col-span-2">
+              <div class="mb-4 flex items-start gap-3">
+                <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/25 dark:text-blue-400">
+                  <span class="i-carbon-renew text-xl" />
+                </div>
+                <div>
+                  <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                    版本更新
+                  </h4>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    检查分支更新、拉取代码与回滚历史版本
+                  </p>
+                </div>
+              </div>
+
+              <div v-if="updateLoading && !updateStatus" class="py-6 text-center text-gray-500">
+                <span class="i-svg-spinners-90-ring-with-bg inline-block text-2xl" />
+              </div>
+              <div v-else-if="updateStatus" class="update-workspace">
+                <section class="update-pane update-pane--status" aria-labelledby="update-status-title">
+                  <header class="update-pane__head">
+                    <div class="update-pane__heading">
+                      <h5 id="update-status-title" class="update-pane__title">
+                        当前版本
+                      </h5>
+                      <span class="update-state" :class="`update-state--${updateHeadline.tone}`">
+                        <span v-if="updateHeadline.tone === 'busy'" class="i-svg-spinners-90-ring-with-bg" aria-hidden="true" />
+                        {{ updateHeadline.label }}
+                      </span>
+                    </div>
+                    <div class="update-pane__actions">
+                      <BaseButton
+                        variant="secondary"
+                        size="sm"
+                        :loading="updateChecking"
+                        :disabled="!updateStatus.canCheck || updatePulling || updateApplying || updateStatus.deployBusy"
+                        @click="handleCheckSystemUpdates"
+                      >
+                        <span class="i-carbon-renew mr-1" aria-hidden="true" />检查更新
+                      </BaseButton>
+                      <BaseButton
+                        v-if="updateStatus.canPull"
+                        variant="secondary"
+                        size="sm"
+                        :loading="updatePulling"
+                        :disabled="updateChecking || updateApplying || updateStatus.deployBusy"
+                        @click="handlePullSystemUpdates"
+                      >
+                        仅拉取代码
+                      </BaseButton>
+                      <BaseButton
+                        v-if="updateStatus.applySupported && updateStatus.behindCount > 0"
+                        variant="primary"
+                        size="sm"
+                        :loading="updateApplying"
+                        :disabled="!updateStatus.canApply || updateChecking || updatePulling"
+                        @click="handleApplySystemUpdate(true)"
+                      >
+                        拉取并更新
+                      </BaseButton>
+                      <BaseButton
+                        v-else-if="updateStatus.applySupported && updateStatus.needsApply"
+                        variant="primary"
+                        size="sm"
+                        :loading="updateApplying"
+                        :disabled="!updateStatus.canApply || updateChecking || updatePulling"
+                        @click="handleApplySystemUpdate(false)"
+                      >
+                        应用更新
+                      </BaseButton>
+                    </div>
+                  </header>
+
+                  <dl class="update-facts">
+                    <div class="update-fact">
+                      <dt>分支</dt>
+                      <dd class="update-fact__value font-mono">
+                        <span>{{ updateStatus.detached ? '游离 HEAD' : (updateStatus.branch || '-') }}</span>
+                        <span class="update-fact__muted" aria-label="跟踪">→</span>
+                        <span :class="{ 'update-fact__muted': !updateStatus.upstream }">{{ updateStatus.upstream || '未关联远程' }}</span>
+                      </dd>
+                    </div>
+                    <div class="update-fact">
+                      <dt>提交</dt>
+                      <dd class="update-fact__value" :title="updateStatus.commitSubject || undefined">
+                        <code class="update-fact__sha">{{ updateStatus.shortCommit || '-' }}</code>
+                        <span v-if="updateStatus.commitSubject" class="update-fact__subject">{{ updateStatus.commitSubject }}</span>
+                      </dd>
+                    </div>
+                    <div class="update-fact">
+                      <dt>最近检查</dt>
+                      <dd class="update-fact__value">
+                        {{ formatUpdateTimestamp(updateStatus.lastCheckedAt) }}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div v-if="!updateStatus.gitSupported" class="update-notice update-notice--muted">
+                    {{ updateStatus.unsupportedReason }}
+                  </div>
+
+                  <template v-else>
+                    <div v-if="updateStatus.dirtyFiles.length" class="update-notice update-notice--warn">
+                      检测到未提交的本地修改（{{ updateStatus.dirtyFiles.slice(0, 3).join('，') }}{{ updateStatus.dirtyFiles.length > 3 ? ' 等' : '' }}），已禁用自动拉取以避免覆盖。
+                    </div>
+
+                    <div v-if="updateStatus.aheadCount > 0" class="update-notice update-notice--warn">
+                      当前分支领先远程 {{ updateStatus.aheadCount }} 个提交，无法快进拉取（--ff-only）。
+                    </div>
+
+                    <div v-if="updateStatus.needsApply && updateStatus.behindCount === 0" class="update-notice update-notice--info">
+                      工作区代码已更新（运行基线 {{ updateStatus.startupCommit.slice(0, 7) }} → {{ updateStatus.shortCommit }}），应用更新并重启后端后生效。
+                    </div>
+
+                    <div v-if="updateStatus.behindCount > 0" class="update-block">
+                      <div class="update-block__title">
+                        可拉取更新<span class="update-block__count">{{ updateStatus.behindCount }}</span>
+                      </div>
+                      <ul class="update-commits">
+                        <li v-for="item in updateStatus.incomingCommits" :key="item.hash" class="update-commits__row">
+                          <code class="update-commits__sha">{{ item.shortHash }}</code>
+                          <span class="update-commits__subject" :title="item.subject">{{ item.subject }}</span>
+                          <span class="update-commits__author">{{ item.author }}</span>
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div v-if="!updateStatus.applySupported && updateStatus.applyUnsupportedReason" class="update-notice update-notice--muted">
+                      {{ updateStatus.applyUnsupportedReason }}
+                    </div>
+                  </template>
+
+                  <div
+                    v-if="updateStatus.job"
+                    class="update-block update-job"
+                    :class="`update-job--${updateStatus.job.status}`"
+                    role="status"
+                  >
+                    <div class="update-block__title">
+                      <span
+                        v-if="updateStatus.job.status === 'running'"
+                        class="update-job__icon i-svg-spinners-90-ring-with-bg"
+                        aria-hidden="true"
+                      />
+                      <span
+                        v-else-if="updateStatus.job.status === 'succeeded'"
+                        class="update-job__icon i-carbon-checkmark-filled"
+                        aria-hidden="true"
+                      />
+                      <span v-else class="update-job__icon i-carbon-warning-filled" aria-hidden="true" />
+                      <span class="min-w-0 truncate">
+                        {{ updateStatus.job.phase || '更新任务' }}{{ updateStatus.job.detail ? ` · ${updateStatus.job.detail}` : '' }}
+                      </span>
+                    </div>
+                    <div v-if="updateStatus.job.error" class="update-job__error">
+                      {{ updateStatus.job.error }}
+                    </div>
+                    <pre v-if="updateStatus.job.recentLines?.length" class="update-job__log">{{ updateStatus.job.recentLines.slice(-6).join('\n') }}</pre>
+                  </div>
+
+                  <div v-if="updateActionError || updateStatus.lastCheckError" role="alert" class="update-error">
+                    {{ updateActionError || updateStatus.lastCheckError }}
+                  </div>
+                </section>
+
+                <ReleaseRollbackPanel
+                  class="update-pane update-pane--releases"
+                  :releases="updateStatus.releases || []"
+                  :summary="updateStatus.releasesSummary || emptyReleasesSummary"
+                  :mode="updateStatus.mode"
+                  :apply-supported="updateStatus.applySupported"
+                  :apply-unsupported-reason="updateStatus.applyUnsupportedReason"
+                  :deploy-busy="updateStatus.deployBusy"
+                  :disabled="updateChecking || updatePulling || updateApplying"
+                  @status-updated="handleReleaseStatusUpdated"
+                />
+              </div>
+              <div v-else-if="updateActionError" class="flex flex-wrap items-center gap-2">
+                <span class="text-xs text-red-600 dark:text-red-400">{{ updateActionError }}</span>
+                <BaseButton size="sm" variant="secondary" @click="loadUpdateStatus()">
+                  重新加载
+                </BaseButton>
+              </div>
+            </section>
+          </div>
+        </div>
 
         <!-- 管理后台：用户 / 卡密 / 邀请 / 流水 / 日志 / 公告 / 邮件（复用 AdminPanel，仅超级管理员可见） -->
         <AdminPanel v-else-if="activeTab === 'admin-panel' && userStore.isSuperAdmin" />
@@ -2283,3 +3316,319 @@ async function handleTestOffline() {
     />
   </div>
 </template>
+
+<style scoped>
+.system-update-card {
+  container-type: inline-size;
+}
+
+/* ==================== 版本更新 ==================== */
+.update-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+/* 两栏同一结构：标题行（标题 + 状态，右侧操作）+ 内容，网格行内等高拉伸。 */
+.update-pane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-pane--releases {
+  padding-top: 18px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.update-pane__head {
+  display: flex;
+  min-height: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.update-pane__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-pane__title {
+  color: var(--ui-ink);
+  font-size: 14px;
+  font-weight: var(--fw-600);
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.update-pane__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.update-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: var(--fw-600);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.update-state--ok {
+  background: color-mix(in srgb, var(--ui-primary) 13%, transparent);
+  color: var(--ui-primary);
+}
+
+.update-state--pending,
+.update-state--busy {
+  background: var(--ui-blue-soft);
+  color: var(--ui-blue);
+}
+
+.update-state--warn {
+  background: var(--ui-warning-soft);
+  color: var(--ui-warning);
+}
+
+.update-state--muted {
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface-soft);
+  color: var(--ui-muted);
+}
+
+.update-facts {
+  margin: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-soft);
+}
+
+.update-fact {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 12px;
+}
+
+.update-fact + .update-fact {
+  border-top: 1px solid var(--ui-border);
+}
+
+.update-fact dt {
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.update-fact__value {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: var(--fw-500);
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.update-fact__muted {
+  color: var(--ui-subtle);
+}
+
+.update-fact__sha {
+  flex-shrink: 0;
+  color: var(--ui-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: var(--fw-600);
+}
+
+.update-fact__subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-notice {
+  padding: 9px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-control);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.update-notice--muted {
+  background: var(--ui-surface-soft);
+  color: var(--ui-muted);
+}
+
+.update-notice--warn {
+  border-color: color-mix(in srgb, var(--ui-warning) 35%, var(--ui-border));
+  background: var(--ui-warning-soft);
+  color: var(--ui-ink);
+}
+
+.update-notice--info {
+  border-color: color-mix(in srgb, var(--ui-blue) 30%, var(--ui-border));
+  background: var(--ui-blue-soft);
+  color: var(--ui-ink);
+}
+
+/* 可拉取提交与任务日志共用同一种块：标题行 + 内容。 */
+.update-block {
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-soft);
+}
+
+.update-block__title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: var(--fw-600);
+  line-height: 20px;
+}
+
+.update-block__count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--ui-blue-soft);
+  color: var(--ui-blue);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.update-commits {
+  display: flex;
+  max-height: 172px;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 12px 10px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.update-commits__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.update-commits__sha {
+  flex-shrink: 0;
+  color: var(--ui-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.update-commits__subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--ui-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-commits__author {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+.update-job--running {
+  border-color: color-mix(in srgb, var(--ui-blue) 35%, var(--ui-border));
+}
+
+.update-job--succeeded {
+  border-color: color-mix(in srgb, var(--ui-primary) 35%, var(--ui-border));
+}
+
+.update-job--failed {
+  border-color: color-mix(in srgb, var(--ui-danger) 40%, var(--ui-border));
+}
+
+.update-job__icon {
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.update-job--running .update-job__icon {
+  color: var(--ui-blue);
+}
+
+.update-job--succeeded .update-job__icon {
+  color: var(--ui-primary);
+}
+
+.update-job--failed .update-job__icon {
+  color: var(--ui-danger);
+}
+
+.update-job__error {
+  padding: 0 12px 9px;
+  color: var(--ui-danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.update-job__log {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--ui-border);
+  background: color-mix(in srgb, var(--ui-ink) 4%, transparent);
+  color: var(--ui-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.update-error {
+  color: var(--ui-danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@container (min-width: 860px) {
+  .update-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 0;
+  }
+
+  .update-pane--status {
+    padding-right: 24px;
+  }
+
+  .update-pane--releases {
+    padding-top: 0;
+    padding-left: 24px;
+    border-top: none;
+    border-left: 1px solid var(--ui-border);
+  }
+}
+</style>

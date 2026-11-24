@@ -3,8 +3,9 @@ const { fork } = require('node:child_process');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const store = require('../models/store');
-const { updateRuntimeConfig, getRuntimeConfig, getDefaultSystemConfig } = require('../config/config');
+const { updateRuntimeConfig } = require('../config/config');
 const { sendPushooMessage, sendSmtpEmail } = require('../services/push');
+const { listHostedSessions, findAccountSession } = require('../session/ipc');
 const { createDataProvider } = require('./data-provider');
 const { createReloginReminderService } = require('./relogin-reminder');
 const { createAutoCodeRefreshService } = require('./auto-code-refresh');
@@ -80,7 +81,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
             owner: String((payload && payload.owner) || ''),
             wxid: String((payload && payload.wxid) || ''),
         };
-        const changed = wxCredentialGuard.noteCredentialInvalid(snapshot, async () => {
+        // noteCredentialInvalid 内部已做同代次幂等：重复失效只落盘一次、不重复外发提醒
+        wxCredentialGuard.noteCredentialInvalid(snapshot, async () => {
             const reason = String((payload && payload.reason) || 'definitive');
             addAccountLog('wx_login_reminder', '微信凭据已明确失效，需要重新扫码授权', accountId, account && account.name || '', { reason });
             await triggerOfflineReminder({
@@ -90,7 +92,6 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
                 offlineMs: 0,
             });
         });
-        if (!changed) return;
     };
 
     // 微信定时刷新服务：worker-manager 里先注入转发桩，服务实例创建后再回填
@@ -98,9 +99,11 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     const autoReloginHooks: {
         scheduleAutoRelogin?: (accountId: string, reason?: string) => boolean;
         refreshAccountCode?: (accountId: string, reason?: string) => Promise<boolean>;
+        scheduleAccountRefresh?: (accountId: string) => void;
+        stopAccountRefresh?: (accountId: string) => void;
     } = {};
 
-    const { startWorker, stopWorker, restartWorker, callWorkerApi } = createWorkerManager({
+    const { startWorker, stopWorker, restartWorker, callWorkerApi, startAccountWorker, stopAccountWorker, detachAllWorkers } = createWorkerManager({
         fork,
         WorkerThread: Worker,
         runtimeMode,
@@ -121,8 +124,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         scheduleAutoRelogin: (accountId: string, reason?: string) => autoReloginHooks.scheduleAutoRelogin?.(accountId, reason) || false,
         refreshAccountCode: (accountId: string, reason?: string) => autoReloginHooks.refreshAccountCode?.(accountId, reason) || Promise.resolve(false),
         shouldStopAutoRelogin: (accountId: string, reason: unknown) => kickGuard.shouldStopAutoRelogin(accountId, reason),
-        scheduleAccountRefresh: (accountId: string) => autoCodeRefresh.scheduleAccount(accountId),
-        stopAccountRefresh: (accountId: string) => autoCodeRefresh.stopAccount(accountId),
+        scheduleAccountRefresh: (accountId: string) => autoReloginHooks.scheduleAccountRefresh?.(accountId),
+        stopAccountRefresh: (accountId: string) => autoReloginHooks.stopAccountRefresh?.(accountId),
         onStatusSync: (accountId: string, status: any, accountName?: string) => {
             runtimeEvents.emit('status', { accountId, status, accountName });
             if (onStatusSync) onStatusSync(accountId, status, accountName);
@@ -148,6 +151,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     });
     autoReloginHooks.scheduleAutoRelogin = autoCodeRefresh.scheduleRelogin;
     autoReloginHooks.refreshAccountCode = autoCodeRefresh.refreshAccountCode;
+    autoReloginHooks.scheduleAccountRefresh = autoCodeRefresh.scheduleAccount;
+    autoReloginHooks.stopAccountRefresh = autoCodeRefresh.stopAccount;
     const dataProvider = createDataProvider({
         workers,
         logPools: LOG_POOLS,
@@ -163,8 +168,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         broadcastConfigToWorkers,
         buildConfigSnapshotForAccount,
         broadcastGameConfigReload,
-        startWorker,
-        stopWorker,
+        startWorker: startAccountWorker,
+        stopWorker: stopAccountWorker,
         restartWorker,
         scheduleAutoCodeRefresh: autoCodeRefresh.scheduleAccount,
         stopAutoCodeRefresh: autoCodeRefresh.stopAccount,
@@ -206,7 +211,26 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         const accounts = (store.getAccounts().accounts || []);
         if (accounts.length > 0) {
             log('系统', `发现 ${accounts.length} 个账号，正在启动...`);
+            // 上游 PR #181：会话宿主模式下，已有会话的账号直接接管（连接仍在 host 里活着，
+            // 不需要换码重连）；其余账号走常规启动流程。
+            let hostedSessions: any[] = [];
+            if (processRef.env.FARM_SESSION_SOCKET) {
+                try {
+                    hostedSessions = await listHostedSessions();
+                } catch (error: any) {
+                    log('系统', `读取会话宿主列表失败，回退常规启动: ${error?.message || error}`);
+                    hostedSessions = [];
+                }
+            }
             for (const acc of accounts) {
+                const hosted = findAccountSession(hostedSessions, acc);
+                if (hosted) {
+                    log('系统', `接管宿主中的账号会话: ${acc.name}`, {
+                        accountId: String(acc.id), accountName: acc.name, sessionId: hosted.sessionId,
+                    });
+                    startWorker(acc, hosted.sessionId);
+                    continue;
+                }
                 // 为移植前已扫码保存凭证的微信账号执行一次默认策略迁移：开启断线自动恢复（在线不再定时换码）
                 if (acc.platform === 'wx' && acc.loginBuffer && acc.wxDefaultsApplied !== true) {
                     const currentRefresh = store.getAutoCodeRefresh(acc.id);
@@ -272,6 +296,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         start,
         startAllAccounts,
         stopAllAccounts,
+        detachAllWorkers,
         broadcastConfigToWorkers,
         broadcastGameConfigReload,
         startWorker,

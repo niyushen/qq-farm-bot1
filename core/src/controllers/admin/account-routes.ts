@@ -99,7 +99,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
-    app.post('/api/accounts', (req: Request, res: Response) => {
+    app.post('/api/accounts', async (req: Request, res: Response) => {
         try {
             const rawBody = (req.body && typeof req.body === 'object') ? req.body : {};
             const requestedName = typeof rawBody.name === 'string' ? rawBody.name.trim() : '';
@@ -182,7 +182,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             if (!isUpdate) {
                 const newAcc = data.accounts.at(-1);
                 if (newAcc) {
-                    ctx.provider.startAccount(newAcc.id);
+                    await ctx.provider.startAccount(newAcc.id);
                     // 微信账号：按当前配置（含默认迁移标记）重建定时刷新/保活调度
                     if (typeof (ctx.provider as any).scheduleAutoCodeRefresh === 'function') {
                         (ctx.provider as any).scheduleAutoCodeRefresh(String(newAcc.id));
@@ -201,13 +201,13 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
                 }
             } else if (isRemarkRelogin) {
                 // Adding with an existing remark is a relogin operation, including for stopped accounts.
-                ctx.provider.restartAccount(payload.id);
+                await ctx.provider.restartAccount(payload.id);
             } else if (!onlyRemarkChanged && (wasRunning || startAfterSave)) {
                 // 更新账号：之前在运行或前端要求登录后自动启动（扫码/填码重新登录），则重启/启动
                 if (wasRunning)
-                    ctx.provider.restartAccount(payload.id);
+                    await ctx.provider.restartAccount(payload.id);
                 else
-                    ctx.provider.startAccount(payload.id);
+                    await ctx.provider.startAccount(payload.id);
             }
             res.json({ ok: true, data });
         } catch (e: any) {
@@ -215,7 +215,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
-    app.delete('/api/accounts/:id', (req: Request, res: Response) => {
+    app.delete('/api/accounts/:id', async (req: Request, res: Response) => {
         try {
             const resolvedId = resolveAccId(ctx, req.params.id, (req as AuthenticatedRequest).currentUser || null) || String(req.params.id || '');
 
@@ -226,7 +226,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
 
             const before = ctx.provider.getAccounts();
             const target = findAccountByRef(before.accounts || [], req.params.id);
-            ctx.provider.stopAccount(resolvedId);
+            await ctx.provider.stopAccount(resolvedId);
             // 清掉该账号的定时刷新/保活/重登调度
             if (typeof (ctx.provider as any).stopAutoCodeRefresh === 'function') {
                 (ctx.provider as any).stopAutoCodeRefresh(resolvedId);

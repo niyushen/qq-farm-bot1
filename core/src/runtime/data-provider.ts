@@ -19,9 +19,9 @@ interface DataProviderOptions {
     broadcastConfigToWorkers: (accountId?: string) => void;
     buildConfigSnapshotForAccount: (accountId: string) => any;
     broadcastGameConfigReload?: () => void;
-    startWorker: (account: any) => boolean;
-    stopWorker: (accountId: string) => void;
-    restartWorker: (account: any) => void;
+    startWorker: (account: any) => boolean | Promise<boolean>;
+    stopWorker: (account: any) => void | Promise<void>;
+    restartWorker: (account: any) => void | Promise<void>;
     // 微信定时刷新重登（自 qq-farm-bot 移植）
     scheduleAutoCodeRefresh?: (accountId: string) => void;
     stopAutoCodeRefresh?: (accountId: string) => void;
@@ -461,11 +461,11 @@ function createDataProvider(options: DataProviderOptions) {
             return data;
         },
 
-        startAccount: (accountRef: string) => {
+        startAccount: async (accountRef: string) => {
             const accountId = resolveAccountRefId(accountRef);
             const acc = findAccountByAnyRef(accountId || accountRef);
             if (!acc) return false;
-            startWorker(acc);
+            await startWorker(acc);
             return true;
         },
 
@@ -493,19 +493,19 @@ function createDataProvider(options: DataProviderOptions) {
             return startWorker(acc);
         },
 
-        stopAccount: (accountRef: string) => {
+        stopAccount: async (accountRef: string) => {
             const accountId = resolveAccountRefId(accountRef);
             const acc = findAccountByAnyRef(accountId || accountRef);
             if (!acc) return false;
-            if (accountId) stopWorker(accountId);
+            if (accountId) await stopWorker(acc);
             return true;
         },
 
-        restartAccount: (accountRef: string) => {
+        restartAccount: async (accountRef: string) => {
             const accountId = resolveAccountRefId(accountRef);
             const acc = findAccountByAnyRef(accountId || accountRef);
             if (!acc) return false;
-            restartWorker(acc);
+            await restartWorker(acc);
             return true;
         },
 

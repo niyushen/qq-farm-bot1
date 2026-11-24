@@ -20,6 +20,14 @@ export interface AdminSession {
 }
 
 export interface AdminContext {
+    /**
+     * 有效 token 集合。
+     *
+     * 上游 PR #181 改为 PersistentTokenSet（单管理员、凭据指纹绑定、落盘持久化），
+     * 但本地是多用户体系：token 必须与 sessions 严格同步（登录时同时写入、
+     * 退出时同时删除、鉴权时两者都要命中），clear() 也要按用户精确吊销。
+     * 故保留 Set<string>，持久化 token 的能力在多用户下不适用。
+     */
     tokens: Set<string>;
     /** token -> 登录用户会话（多用户体系） */
     sessions: Map<string, AdminSession>;

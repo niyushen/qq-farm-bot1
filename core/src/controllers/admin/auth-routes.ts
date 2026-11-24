@@ -10,6 +10,8 @@ const userStore = require('../../models/user-store');
 const store = require('../../models/store');
 const { USER_SYSTEM_CONFIG, USER_ROLES, isElevatedRole } = require('../../config/user-system');
 const inviteService = require('../../services/invite-rewards');
+// 上游 PR #181/#182：面板在线更新需要区分前后端构建版本
+const { getActiveWebBuildId } = require('./web-version');
 
 const {
     getClientIp,
@@ -461,12 +463,13 @@ function mountAuthRoutes(app: Application, ctx: AdminContext): void {
     });
 
     app.get('/api/ping', (_req: Request, res: Response) => {
-        res.json({ ok: true, data: { ok: true, uptime: process.uptime(), version } });
+        res.json({ ok: true, data: { ok: true, uptime: process.uptime(), version, webBuildId: getActiveWebBuildId() } });
     });
 
-    app.get('/api/game-version', (_req: Request, res: Response) => {
+    app.get('/api/game-version', async (_req: Request, res: Response) => {
         const { clientVersion, wxClientVersion } = getRuntimeConfig();
-        res.json({ ok: true, clientVersion, wxClientVersion, botVersion: version });
+        const { getServiceSummary } = require('../../session/ipc');
+        res.json({ ok: true, clientVersion, wxClientVersion, botVersion: version, serviceSummary: await getServiceSummary() });
     });
 
     app.get('/api/auth/validate', (req: any, res: Response) => {
@@ -572,7 +575,8 @@ function mountAuthRoutes(app: Application, ctx: AdminContext): void {
 
         const body = (req.body && typeof req.body === 'object') ? req.body : {};
         const rawEmail = String(body.email ?? '').trim();
-        if (rawEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail))
+        // 邮箱格式校验：本地段与域名段各自排除空白与 @，避免相邻量词可交换字符导致回溯
+        if (rawEmail && !/^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$/.test(rawEmail))
             return res.status(400).json({ ok: false, error: '邮箱格式不正确' });
 
         // 只信任会话里的用户名，绝不接收前端传来的 username，避免越权改他人资料
