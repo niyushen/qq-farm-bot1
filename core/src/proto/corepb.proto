@@ -73,3 +73,11 @@ message ItemRanchProduct {
     int64 price_rate = 5;
     int64 base_point = 6;
 }
+
+// 社交关系（ReportArkClick / 好友相关回包通用）
+// 反编译核实：is_stranger=3，is_friend=1 表示双方已是好友。
+message RelationInfo {
+    bool is_friend = 1;
+    bool is_community_member = 2;
+    bool is_stranger = 3;
+}

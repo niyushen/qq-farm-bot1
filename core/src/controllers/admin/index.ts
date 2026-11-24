@@ -19,6 +19,7 @@ const { mountAccountRoutes } = require('./account-routes');
 const { mountFarmRoutes } = require('./farm-routes');
 const { mountCoinRankRoutes } = require('./coin-rank-routes');
 const { mountFriendRoutes } = require('./friend-routes');
+const { mountCareerRoutes } = require('./career-routes');
 const { mountActivityCenterRoutes } = require('./activity-center-routes');
 const { mountCommerceRoutes } = require('./commerce-routes');
 const { mountSystemUpdateRoutes } = require('./system-update-routes');
@@ -138,7 +139,19 @@ function startAdminServer(dataProvider: any): void {
         adminLogger.warn('web build not found', { webDist });
         app.get('/', (_req: any, res: any) => sendDynamicIndex(res, 200));
     }
+    // /game-config 同时挂两处静态目录：
+    //   1) core/src/gameConfig —— 后端自带的资源（plant_images / seed_images_named / ranch / collections 等）
+    //   2) web/dist/game-config —— 前端 public 目录里的资源（career / land_images / scene_images / effect_images / resource-icons 等）
+    // 前端的 serveDynamicWeb 显式跳过 /game-config 前缀，所以这些资源只能由这里提供；
+    // 之前只挂 core 侧，导致 web/public 里的图片在后端端口下一律 404（生涯图标、土地图、场景图都不显示）。
+    // 用两个中间件串联实现「先查后端资源、查不到再落到前端构建产物」，无需复制上万文件。
     app.use('/game-config', express.static(getResourcePath('gameConfig')));
+    for (const dir of resolveActiveWebDirs()) {
+        const candidate = path.join(dir, 'game-config');
+        if (fs.existsSync(candidate)) {
+            app.use('/game-config', express.static(candidate));
+        }
+    }
 
     // Mount route modules
     mountAuthRoutes(app, ctx);
@@ -148,6 +161,7 @@ function startAdminServer(dataProvider: any): void {
     mountFarmRoutes(app, ctx);
     mountCoinRankRoutes(app, ctx);
     mountFriendRoutes(app, ctx);
+    mountCareerRoutes(app, ctx);
     mountAccountRoutes(app, ctx);
     mountActivityCenterRoutes(app, ctx);
     mountCommerceRoutes(app, ctx);

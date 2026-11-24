@@ -100,6 +100,8 @@ async function loadProto(): Promise<void> {
     types.SetDisplayInfoReply = root.lookupType('gamepb.userpb.SetDisplayInfoReply');
     types.SetQQFriendRecommendAuthorizedRequest = root.lookupType('gamepb.userpb.SetQQFriendRecommendAuthorizedRequest');
     types.SetQQFriendRecommendAuthorizedReply = root.lookupType('gamepb.userpb.SetQQFriendRecommendAuthorizedReply');
+    types.SetUserSettingsRequest = root.lookupType('gamepb.userpb.SetUserSettingsRequest');
+    types.SetUserSettingsReply = root.lookupType('gamepb.userpb.SetUserSettingsReply');
     types.GetUserSettingsRequest = root.lookupType('gamepb.userpb.GetUserSettingsRequest');
     types.GetUserSettingsReply = root.lookupType('gamepb.userpb.GetUserSettingsReply');
     types.BatchGetBasicInfoRequest = root.lookupType('gamepb.userpb.BatchGetBasicInfoRequest');
@@ -210,6 +212,9 @@ async function loadProto(): Promise<void> {
     types.GetApplicationsReply = root.lookupType('gamepb.friendpb.GetApplicationsReply');
     types.AcceptFriendsRequest = root.lookupType('gamepb.friendpb.AcceptFriendsRequest');
     types.AcceptFriendsReply = root.lookupType('gamepb.friendpb.AcceptFriendsReply');
+    // 主动加好友：Enter(reason=5) 拿 apply_token → ApplyFriend
+    types.ApplyFriendRequest = root.lookupType('gamepb.friendpb.ApplyFriendRequest');
+    types.ApplyFriendReply = root.lookupType('gamepb.friendpb.ApplyFriendReply');
     types.RejectFriendsRequest = root.lookupType('gamepb.friendpb.RejectFriendsRequest');
     types.RejectFriendsReply = root.lookupType('gamepb.friendpb.RejectFriendsReply');
     types.DelFriendRequest = root.lookupType('gamepb.friendpb.DelFriendRequest');

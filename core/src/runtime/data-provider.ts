@@ -147,6 +147,7 @@ function createDataProvider(options: DataProviderOptions) {
             return { cleared, accountId };
         },
 
+        getCareerProfile: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getCareerProfile'),
         getLands: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getLands', true),
         getIllustratedSnapshot: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getIllustratedSnapshot'),
         getCollectionsSnapshot: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getCollectionsSnapshot'),
@@ -181,6 +182,9 @@ function createDataProvider(options: DataProviderOptions) {
         ),
         doFriendOp: (accountRef: string, gid: number, opType: string) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType, true),
         delFriend: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'delFriend', gid),
+        applyFriendInvites: (accountRef: string, items: any[], options: any) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'applyFriendInvites', items || [], options || {})
+        ),
         getBag: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
         getBagSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBagSeeds'),
         getDiamondBalance: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getDiamondBalance'),
@@ -294,6 +298,9 @@ function createDataProvider(options: DataProviderOptions) {
             callWorkerApi(resolveAccountRefId(accountRef), 'purchaseMallProduct', goodsId, count, slotType, expectedPrice)
         ),
         getMysteryShop: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getMysteryShop'),
+        getMysteryShopHistory: (accountRef: string) => (
+            require('../services/mystery-shop-history').getMysteryShopHistory(resolveAccountRefId(accountRef))
+        ),
         purchaseMysteryOffer: (accountRef: string, npcId: unknown) => (
             callWorkerApi(resolveAccountRefId(accountRef), 'purchaseMysteryOffer', npcId)
         ),
@@ -341,6 +348,7 @@ function createDataProvider(options: DataProviderOptions) {
             if (!Object.hasOwn(snapshot, 'plantingStrategy')) copyIfPresent('strategy', 'plantingStrategy');
             copyIfPresent('preferredSeedId');
             if (!Object.hasOwn(snapshot, 'preferredSeedId')) copyIfPresent('seedId', 'preferredSeedId');
+            copyIfPresent('capitalMode');
             for (const key of [
                 'automation',
                 'intervals',
@@ -358,6 +366,7 @@ function createDataProvider(options: DataProviderOptions) {
                 'bagSeedMultiLandReservationEnabled',
                 'bagSeedLandTypes',
                 'bagSeedFallbackStrategy',
+                'prioritize2x2Crops',
                 'autoAcceptFriendMinLevel',
                 'autoAcceptRequireOwnLevel',
                 'autoAcceptHarvestStealEnabled',

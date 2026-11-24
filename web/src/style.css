@@ -68,6 +68,13 @@ textarea * {
   --theme-bg: var(--ui-bg);
   --theme-text: var(--ui-ink);
   --theme-primary: var(--ui-primary);
+  --theme-gradient: linear-gradient(135deg, #4f9d70, var(--ui-primary));
+  --muted-text: var(--ui-muted);
+  /* 设置页侧边导航（卡片墙布局）使用 */
+  --surface-1: var(--ui-surface-solid);
+  --surface-2: var(--ui-bg-soft);
+  --surface-border: var(--ui-border);
+  --surface-shadow-soft: var(--ui-shadow-sm);
   --theme-secondary: var(--ui-teal);
   --theme-primary-rgb: 67, 141, 99;
   --theme-radius-sm: 6px;

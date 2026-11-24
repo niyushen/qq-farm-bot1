@@ -553,6 +553,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const intervals = id ? store.getIntervals(id) : {};
             const strategy = id ? store.getPlantingStrategy(id) : null;
             const preferredSeed = id ? store.getPreferredSeed(id) : null;
+            const capitalMode = id && (typeof store.getCapitalMode === 'function') ? store.getCapitalMode(id) : { enabled: false, dogId: 0, leadSeconds: 10 };
             const friendQuietHours = id ? store.getFriendQuietHours(id) : null;
             const automation = id ? store.getAutomation(id) : {};
             const stealDelaySeconds = id && (typeof store.getStealDelaySeconds === 'function') ? store.getStealDelaySeconds(id) : 0;
@@ -567,6 +568,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const bagSeedMultiLandReservationEnabled = id && (typeof store.getBagSeedMultiLandReservationEnabled === 'function') ? store.getBagSeedMultiLandReservationEnabled(id) : false;
             const bagSeedLandTypes = id && (typeof store.getBagSeedLandTypes === 'function') ? store.getBagSeedLandTypes(id) : {};
             const bagSeedFallbackStrategy = id && (typeof store.getBagSeedFallbackStrategy === 'function') ? store.getBagSeedFallbackStrategy(id) : 'level';
+            const prioritize2x2Crops = id && (typeof store.getPrioritize2x2Crops === 'function') ? store.getPrioritize2x2Crops(id) : true;
             const autoAcceptFriendMinLevel = id && (typeof store.getAutoAcceptFriendMinLevel === 'function') ? store.getAutoAcceptFriendMinLevel(id) : 0;
             const autoAcceptRequireOwnLevel = id && (typeof store.getAutoAcceptRequireOwnLevel === 'function') ? store.getAutoAcceptRequireOwnLevel(id) : false;
             const autoAcceptHarvestStealEnabled = id && (typeof store.getAutoAcceptHarvestStealEnabled === 'function') ? store.getAutoAcceptHarvestStealEnabled(id) : true;
@@ -587,7 +589,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const globalMailer = typeof featuresStore.getGlobalMailerPublic === 'function'
                 ? featuresStore.getGlobalMailerPublic()
                 : { available: false, senderName: '' };
-            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, stealDelaySeconds, plantOrderRandom, plantDelaySeconds, goldenBugKeepCount, goldenBugRoundLimit, fertilizerBuyOrganicCount, fertilizerBuyOrganicThresholdHours, fertilizerBuyNormalCount, fertilizerBuyNormalThresholdHours, fertilizerBuyCheckIntervalMinutes, bagSeedPriority, bagSeedMultiLandReservationEnabled, bagSeedLandTypes, bagSeedFallbackStrategy, autoAcceptFriendMinLevel, autoAcceptRequireOwnLevel, autoAcceptHarvestStealEnabled, autoAcceptHarvestStealHarvest, autoAcceptHarvestStealSteal, autoCodeRefresh, ui, offlineReminder, globalMailer } });
+            res.json({ ok: true, data: { intervals, strategy, preferredSeed, capitalMode, friendQuietHours, automation, stealDelaySeconds, plantOrderRandom, plantDelaySeconds, goldenBugKeepCount, goldenBugRoundLimit, fertilizerBuyOrganicCount, fertilizerBuyOrganicThresholdHours, fertilizerBuyNormalCount, fertilizerBuyNormalThresholdHours, fertilizerBuyCheckIntervalMinutes, bagSeedPriority, bagSeedMultiLandReservationEnabled, bagSeedLandTypes, bagSeedFallbackStrategy, prioritize2x2Crops, autoAcceptFriendMinLevel, autoAcceptRequireOwnLevel, autoAcceptHarvestStealEnabled, autoAcceptHarvestStealHarvest, autoAcceptHarvestStealSteal, autoCodeRefresh, ui, offlineReminder, globalMailer } });
         } catch (e: any) {
             handleApiError(res, e);
         }

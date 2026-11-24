@@ -151,6 +151,17 @@ message AcceptFriendsReply {
     repeated GameFriend friends = 1;
 }
 
+// --- 通过分享链接主动加好友（BUGDey v2.18.12 抓包实证）---
+// VisitService.Enter(reason=5, share_key) 回包顶层 field 10 带 apply_token，
+// 原样发回 FriendService.ApplyFriend 即可发出好友申请。
+message ApplyFriendRequest {
+    int64 gid = 1;
+    string apply_token = 2;
+    int32 source = 3;
+}
+
+message ApplyFriendReply {}
+
 // --- 拒绝好友申请 ---
 message RejectFriendsRequest {
     repeated int64 friend_gids = 1;

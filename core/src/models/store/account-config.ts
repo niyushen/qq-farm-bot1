@@ -1,4 +1,4 @@
-import type { AccountConfig, AutomationConfig, BagSeedFallbackStrategy, FertilizerLandType, IntervalConfig, PlantingStrategy, QuietHoursConfig } from '../../types/config';
+import type { AccountConfig, AutomationConfig, BagSeedFallbackStrategy, CapitalModeConfig, FertilizerLandType, IntervalConfig, PlantingStrategy, QuietHoursConfig } from '../../types/config';
 export {};
 
 const sharedState = require('./shared-state');
@@ -9,6 +9,7 @@ const { readKnownFriendGidsCache, writeKnownFriendGidsCache } = require('./gid-c
 const {
     globalConfig,
     normalizeAccountConfig,
+    normalizeCapitalMode,
     cloneAccountConfig,
     normalizeFertilizerMode,
     normalizeFertilizerLandTypes,
@@ -344,6 +345,18 @@ function getPreferredSeed(accountId?: unknown): number {
     return getAccountConfigSnapshot(accountId).preferredSeedId;
 }
 
+function getCapitalMode(accountId?: unknown): CapitalModeConfig {
+    return normalizeCapitalMode(getAccountConfigSnapshot(accountId).capitalMode);
+}
+
+function setCapitalMode(accountId: unknown, config: unknown): CapitalModeConfig {
+    const current = getAccountConfigSnapshot(accountId);
+    const next = normalizeAccountConfig(current, sharedState.accountFallbackConfig);
+    next.capitalMode = normalizeCapitalMode(config, next.capitalMode);
+    setAccountConfigSnapshot(accountId, next, true);
+    return { ...next.capitalMode };
+}
+
 function getPlantingStrategy(accountId?: unknown): PlantingStrategy {
     return getAccountConfigSnapshot(accountId).plantingStrategy;
 }
@@ -362,6 +375,10 @@ function getBagSeedLandTypes(accountId?: unknown): Record<string, FertilizerLand
 
 function getBagSeedFallbackStrategy(accountId?: unknown): BagSeedFallbackStrategy {
     return normalizeBagSeedFallbackStrategy(getAccountConfigSnapshot(accountId).bagSeedFallbackStrategy);
+}
+
+function getPrioritize2x2Crops(accountId?: unknown): boolean {
+    return !!getAccountConfigSnapshot(accountId).prioritize2x2Crops;
 }
 
 function getIntervals(accountId?: unknown): IntervalConfig {
@@ -554,11 +571,14 @@ module.exports = {
     setAutoCodeRefresh,
     isAutomationOn,
     getPreferredSeed,
+    getCapitalMode,
+    setCapitalMode,
     getPlantingStrategy,
     getBagSeedPriority,
     getBagSeedMultiLandReservationEnabled,
     getBagSeedLandTypes,
     getBagSeedFallbackStrategy,
+    getPrioritize2x2Crops,
     getIntervals,
     getFriendQuietHours,
     getKnownFriendGids,

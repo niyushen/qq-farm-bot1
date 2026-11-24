@@ -6,7 +6,7 @@ export {};
 const protobuf = require('protobufjs');
 const { performance } = require('node:perf_hooks');
 const { getPlantNameBySeedId, formatGrowTime, getPlantGrowTime, getAllSeeds, getPlantBySeedId } = require('../../config/gameConfig');
-const { getPreferredSeed, getAutomation, getPlantingStrategy, getBagSeedPriority, getBagSeedMultiLandReservationEnabled, getBagSeedLandTypes, getBagSeedFallbackStrategy, getPlantDelaySeconds } = require('../../models/store');
+const { getPreferredSeed, getAutomation, getPlantingStrategy, getBagSeedPriority, getBagSeedMultiLandReservationEnabled, getBagSeedLandTypes, getBagSeedFallbackStrategy, getPlantDelaySeconds, getPrioritize2x2Crops } = require('../../models/store');
 const { getUserState, getWsErrorState, sendMsgAsync } = require('../../utils/network');
 const { toNum, getServerTimeSec, log, logWarn, sleep } = require('../../utils/utils');
 const { types } = require('../../utils/proto');
@@ -92,6 +92,26 @@ function confirmsPlantedFootprint(
 function getPlantSizeBySeedId(seedId: number | string): number {
     const plantCfg = getPlantBySeedId(toNum(seedId));
     return Math.max(1, toNum(plantCfg && plantCfg.size) || 1);
+}
+
+/**
+ * 「优先种植 2×2 作物」：开启后多格作物排在最前；显式指定的优先种子（优先种子/背包顺序）次之，单格作物最后。
+ */
+function preferMultiSizeSeeds<T extends { seedId?: any }>(seeds: T[], pinnedSeedIds: Array<number | string> = []): T[] {
+    const list = Array.isArray(seeds) ? seeds : [];
+    if (list.length < 2) return [...list];
+    const pinned = new Set<number>(pinnedSeedIds.map(id => toNum(id)).filter(id => id > 0));
+    const head: T[] = [];
+    const multi: T[] = [];
+    const single: T[] = [];
+    for (const seed of list) {
+        const seedId = toNum(seed && seed.seedId);
+        if (pinned.has(seedId)) head.push(seed);
+        else if (getPlantSizeBySeedId(seedId) > 1) multi.push(seed);
+        else single.push(seed);
+    }
+    if (multi.length === 0) return [...head, ...single];
+    return [...multi, ...head, ...single];
 }
 
 /**
@@ -317,7 +337,7 @@ async function plantFromBagSeeds(landsToPlant: any[], landTypeById?: Map<number,
 
     // 背包已有种子按优先级选取，种植资格由服务端校验。
     const skippedSeeds: any[] = [];
-    const usableSeeds = sortBagSeedsForPlanting(
+    const sortedBagSeeds = sortBagSeedsForPlanting(
         normalizedSeeds.filter((seed: any) => {
             if (seed.count <= 0) {
                 skippedSeeds.push({ seedId: seed.seedId, name: seed.name, reason: 'count_zero', count: seed.count });
@@ -331,6 +351,10 @@ async function plantFromBagSeeds(landsToPlant: any[], landTypeById?: Map<number,
         }),
         priorityList,
     );
+    // 优先 2×2：多格作物整体提前，显式优先的种子仍排在单格作物之前。
+    const usableSeeds = typeof getPrioritize2x2Crops === 'function' && getPrioritize2x2Crops()
+        ? preferMultiSizeSeeds(sortedBagSeeds, priorityList)
+        : sortedBagSeeds;
 
     if (skippedSeeds.length > 0) {
         log('种植', `背包种子不可种植: ${skippedSeeds.map((s: any) => `${s.name}(${s.seedId}) ${s.reason}`).join('; ')}`, {
@@ -546,26 +570,34 @@ async function findBestSeed(overrideStrategy?: string): Promise<any[]> {
                     rankingBySeedId.set(seedId, index);
                 }
             });
-            return available.sort((a: any, b: any) => {
+            const ranked = available.sort((a: any, b: any) => {
                 const aRank = rankingBySeedId.get(a.seedId) ?? Number.MAX_SAFE_INTEGER;
                 const bRank = rankingBySeedId.get(b.seedId) ?? Number.MAX_SAFE_INTEGER;
                 return (aRank - bRank) || byLevelAndId(a, b);
             });
+            return typeof getPrioritize2x2Crops === 'function' && getPrioritize2x2Crops()
+                ? preferMultiSizeSeeds(ranked)
+                : ranked;
         } catch (e: any) {
             logWarn('商店', `策略 ${strategy} 计算失败: ${e.message}，回退最高等级`);
         }
     }
 
     available.sort(byLevelAndId);
+    const pinnedSeedIds: number[] = [];
     if (strategy === 'preferred') {
         const preferred = getPreferredSeed();
         if (preferred > 0) {
             const index = available.findIndex((candidate: any) => candidate.seedId === preferred);
-            if (index >= 0) available.unshift(...available.splice(index, 1));
+            if (index >= 0) {
+                available.unshift(...available.splice(index, 1));
+                pinnedSeedIds.push(preferred);
+            }
             else logWarn('商店', `优先种子 ${preferred} 当前不可购买，回退自动选择`);
         }
     }
-    return available;
+    if (typeof getPrioritize2x2Crops !== 'function' || !getPrioritize2x2Crops()) return available;
+    return preferMultiSizeSeeds(available, pinnedSeedIds);
 }
 
 async function purchaseSeed(goodsIdInput: unknown, countInput: unknown): Promise<any> {

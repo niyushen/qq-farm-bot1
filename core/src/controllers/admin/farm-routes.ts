@@ -541,6 +541,31 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
+    // API: 宠物资本模式配置（按账号保存，成熟前自动派出 / 收获后自动召回）
+    app.get('/api/dog/capital-mode', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!canAccessAccount(ctx, req, id)) return res.status(403).json({ ok: false, error: '无权操作该账号' });
+        res.json({ ok: true, data: store.getCapitalMode(id) });
+    });
+
+    app.post('/api/dog/capital-mode', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        if (!canAccessAccount(ctx, req, id)) return res.status(403).json({ ok: false, error: '无权操作该账号' });
+        const body = (req.body && typeof req.body === 'object') ? req.body : {};
+        try {
+            const result = await ctx.provider.saveSettings(id, { capitalMode: body });
+            res.json({ ok: true, data: {
+                capitalMode: store.getCapitalMode(id),
+                confirmed: !!result?.confirmed,
+                appliedRevision: result?.appliedRevision ?? null,
+            } });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
     // API: 获取背包种子列表
     app.get('/api/bag/seeds', async (req: Request, res: Response) => {
         const id = getAccId(ctx, req);

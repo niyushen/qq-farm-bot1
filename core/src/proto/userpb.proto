@@ -184,16 +184,20 @@ message HeartbeatReply {
 }
 
 // ============ 上报分享点击 ============
-// 用于已登录状态下处理分享链接（触发好友申请）
+// 已登录状态下「点开分享卡片」的同款请求。字段号以反编译源码为准：
+// game.resolved.fixed.js:105846（热启动点卡片只发这一个请求，服务端直接绑定好友）。
+// 注意：旧版这里把 scene_id / share_cfg_id 写反且缺 share_key，
+// 带上 share_key 才会被服务端当作「有效分享」处理，否则只是无效点击上报。
 message ReportArkClickRequest {
     int64 sharer_id = 1;
-    string sharer_open_id = 2;
-    int64 share_cfg_id = 3;
-    string scene_id = 4;
+    string sharer_open_id = 2;   // 必须与 share_key 的主人一致，否则不绑定
+    string scene_id = 3;         // 微信场景，卡片默认 1007
+    int64 share_cfg_id = 4;      // 卡片里的 share_source
+    string share_key = 5;        // 卡片里的 32 位 share_key
 }
 
 message ReportArkClickReply {
-    // 通常为空响应
+    corepb.RelationInfo relation = 1;  // is_friend=true 表示服务端已绑定（免同意直加成功）
 }
 
 // ============ 批量上报客户端流程 ============
@@ -248,11 +252,21 @@ message UserSettings {
     int64 qq_friend_recommend_authorized = 1;
     bool disable_nudge = 2;
     bool field_3 = 3;
+    int32 field_5 = 5;
+    // 6 = 「好友功能 · 点击分享链接可拜访好友」：为 0 时 Enter(reason=5) 报 1002007，拿不到申请令牌
+    int32 visit_by_share_key = 6;
 }
 
 message GetUserSettingsReply {
     UserSettings settings = 1;
 }
+
+// 只提交要改的那一项：SetUserSettings 请求体就是 {"field":6,"value":"1"}
+message SetUserSettingsRequest {
+    int32 visit_by_share_key = 6;
+}
+
+message SetUserSettingsReply {}
 
 // ============ 批量获取用户信息 ============
 message BatchGetBasicInfoRequest {

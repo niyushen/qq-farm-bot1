@@ -39,6 +39,12 @@ async function getAllLands(): Promise<any> {
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'AllLands', body);
     const reply = types.AllLandsReply.decode(replyBody);
     forecast.rememberLandForecast(reply.lands, getUserState(), revision);
+    // 顺手记一份成熟时刻，供好友页「外挂检测」判定秒偷。
+    try {
+        if (process.env.FARM_ACCOUNT_ID)
+            require('../friend/cheat-detect').recordOwnMaturityHistory(reply.lands);
+    }
+    catch { /* 采样失败不影响巡田 */ }
     // 更新操作限制
     if (reply.operation_limits && onOperationLimitsUpdate) {
         onOperationLimitsUpdate(reply.operation_limits);

@@ -76,10 +76,19 @@ export interface QuietHoursConfig {
   continueFarm: boolean;
 }
 
+/** 宠物资本模式：成熟前 leadSeconds 秒自动派出守护宠物，收获 5 秒后召回。 */
+export interface CapitalModeConfig {
+  enabled: boolean;
+  dogId: number;
+  leadSeconds: number;
+}
+
 export interface AccountConfig {
   automation: AutomationConfig;
   plantingStrategy: PlantingStrategy;
   preferredSeedId: number;
+  /** 宠物资本模式：按作物成熟时间自动派出守护宠物。 */
+  capitalMode: CapitalModeConfig;
   /** 微信定时刷新重登（按账号保存）：定时换新 Code + 被踢/断线自动重登 */
   autoCodeRefresh: AutoCodeRefreshConfig;
   intervals: IntervalConfig;
@@ -110,6 +119,8 @@ export interface AccountConfig {
   /** seedId -> 允许种植的土地类型。缺 key 视为不限制。 */
   bagSeedLandTypes: Record<string, FertilizerLandType[]>;
   bagSeedFallbackStrategy: BagSeedFallbackStrategy;
+  /** 优先种植 2×2 及以上的多格作物（多格作物排在单格作物之前）。 */
+  prioritize2x2Crops: boolean;
   autoAcceptFriendMinLevel: number;
   autoAcceptRequireOwnLevel: boolean;
   autoAcceptHarvestStealEnabled: boolean;

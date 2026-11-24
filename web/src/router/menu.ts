@@ -4,6 +4,8 @@ export interface MenuItem {
   label: string
   icon: string
   component: () => Promise<any>
+  /** 保留路由直达，但不出现在侧栏/底栏菜单（对齐 A 的牧场策略页）。 */
+  hidden?: boolean
   meta?: {
     fullBleed?: boolean
     gameSpace?: 'ranch'
@@ -27,6 +29,13 @@ export const menuRoutes: MenuItem[] = [
     label: '个人',
     icon: 'i-carbon-sprout',
     component: () => import('@/views/Personal.vue'),
+  },
+  {
+    path: 'pet',
+    name: 'pet',
+    label: '宠物',
+    icon: 'i-fas-paw',
+    component: () => import('@/views/Pet.vue'),
   },
   {
     path: 'illustrated',
@@ -98,9 +107,11 @@ export const ranchMenuRoutes: MenuItem[] = [
   { path: 'ranch', name: 'ranch-dashboard', label: '概览', icon: 'i-carbon-dashboard', component: () => import('@/views/RanchOverview.vue'), meta: { gameSpace: 'ranch' } },
   { path: 'ranch/personal', name: 'ranch-personal', label: '个人', icon: 'i-carbon-sprout', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'personal' } },
   { path: 'ranch/illustrated', name: 'ranch-illustrated', label: '图鉴', icon: 'i-carbon-book', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'illustrated' } },
+  { path: 'ranch/analytics', name: 'ranch-analytics', label: '分析', icon: 'i-carbon-analytics', component: () => import('@/views/RanchAnalytics.vue'), meta: { gameSpace: 'ranch' } },
   { path: 'ranch/activity', name: 'ranch-activity-center', label: '活动', icon: 'i-carbon-gift', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'activity' } },
   { path: 'ranch/friends', name: 'ranch-friends', label: '好友', icon: 'i-carbon-user-multiple', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'friends' } },
-  { path: 'ranch/strategy', name: 'ranch-strategy', label: '策略', icon: 'i-carbon-settings-adjust', component: () => import('@/views/RanchStrategy.vue'), meta: { gameSpace: 'ranch' } },
+  // 策略页不再出现在牧场菜单，但保留路由直达（设置页/书签仍可进入）。
+  { path: 'ranch/strategy', name: 'ranch-strategy', label: '策略', icon: 'i-carbon-settings-adjust', component: () => import('@/views/RanchStrategy.vue'), hidden: true, meta: { gameSpace: 'ranch' } },
   { path: 'ranch/game-mall', name: 'ranch-game-mall', label: '游戏商城', icon: 'i-carbon-shopping-cart', component: () => import('@/views/Ranch.vue'), meta: { gameSpace: 'ranch', ranchSection: 'mall' } },
   // 牧场侧沿用农场侧的金币排行榜页面：统计口径是账号今日金币增加，与所在空间无关。
   { path: 'ranch/coin-rank', name: 'ranch-coin-rank', label: '排行榜', icon: 'i-carbon-trophy', component: () => import('@/views/CoinRank.vue'), meta: { gameSpace: 'ranch' } },
@@ -109,5 +120,5 @@ export const ranchMenuRoutes: MenuItem[] = [
 
 export const allMenuRoutes = [...menuRoutes, ...ranchMenuRoutes]
 export function getSpaceMenu(inRanch: boolean) {
-  return inRanch ? ranchMenuRoutes : menuRoutes
+  return (inRanch ? ranchMenuRoutes : menuRoutes).filter(item => !item.hidden)
 }

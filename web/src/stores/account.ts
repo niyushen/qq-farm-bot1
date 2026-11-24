@@ -11,6 +11,9 @@ export interface Account {
   avatar?: string
   platform?: string
   running?: boolean
+  /** 账号运行时状态（登录中/重登等待/运行中/离线等），由后端实时下发 */
+  runtimeState?: 'logging_in' | 'relogin_waiting' | 'running' | 'offline' | 'stopping' | 'stopped'
+  reloginAt?: number | null
   // 归属：创建/绑定该账号的登录用户名（owner 优先，兼容旧数据回落 username）
   owner?: string
   username?: string
@@ -172,6 +175,19 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
+  /** 续期全部微信账号授权。当前 fork 后端可能未提供该接口，失败时返回明确错误对象供 UI 提示。 */
+  async function refreshWxCodes() {
+    try {
+      const res = await api.post('/api/accounts/refresh-wx-credentials')
+      await fetchAccounts()
+      return res.data
+    }
+    catch (e: any) {
+      const message = e?.response?.data?.error || e?.message || '当前版本不支持微信授权续期'
+      return { ok: false, error: message, success: 0, failed: 0, skipped: 0, results: [] }
+    }
+  }
+
   return {
     accounts,
     currentAccountId,
@@ -188,6 +204,7 @@ export const useAccountStore = defineStore('account', () => {
     fetchLogs,
     addAccount,
     updateAccount,
+    refreshWxCodes,
     setCurrentAccount,
     syncAccountAvatar,
   }

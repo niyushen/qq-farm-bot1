@@ -384,7 +384,7 @@ function animalsInResults(ranches: any[], rows: any[]): any[] {
     return ranches.flatMap(ranch => ranch.animals.filter((animal: any) => ids.has(`${quantity(ranch.ranch_inst_id)}:${animal.animal_inst_id}`)));
 }
 
-async function operate(action: string, input: any = {}, feedStage?: RanchFeedStage): Promise<any> {
+async function operateCore(action: string, input: any = {}, feedStage?: RanchFeedStage): Promise<any> {
     if (['stroke', 'putMosquito', 'cleanFriend'].includes(action)) return require('./friends').interact(action, input);
     if (action === 'acknowledge') return inScene(async () => {
         reservations.forCurrentAccount().acknowledge(String(input.id));
@@ -611,6 +611,25 @@ async function operate(action: string, input: any = {}, feedStage?: RanchFeedSta
 
     return inActionScene(action, input, (cells, recipient) =>
         reservations.forCurrentAccount().withLock(async () => run(action, input, { ...await loadRaw(cells), recipient })));
+}
+
+/**
+ * 牧场动作入口。
+ *
+ * 成功确认的动作在这里记一次「牧场今日统计」计数，供牧场概览页的今日统计展示。
+ * 条数统计由上游 recordOperation(action, completed, 'ranch') 在 run() 里完成，两边不重叠。
+ */
+async function operate(action: string, input: any = {}, feedStage?: RanchFeedStage): Promise<any> {
+    const result = await operateCore(action, input, feedStage);
+    if (result && result.status === 'confirmed' && action !== 'acknowledge') {
+        try {
+            require('./stats').recordAction(action);
+        }
+        catch {
+            // 统计失败不影响动作结果
+        }
+    }
+    return result;
 }
 
 module.exports = { prepareAction, operate, ACTIONS, planAction };

@@ -3,6 +3,7 @@ import { useIntervalFn } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
+import AccountCareerModal from '@/components/AccountCareerModal.vue'
 import LevelForecast from '@/components/LevelForecast.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
@@ -12,6 +13,8 @@ import { getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
+import type { RuntimeLogEntry } from '@/utils/runtime-log'
+import { matchesRuntimeLog, normalizeRuntimeLog } from '@/utils/runtime-log'
 
 const statusStore = useStatusStore()
 const accountStore = useAccountStore()
@@ -33,10 +36,11 @@ const autoScroll = ref(true)
 const lastBagFetchAt = ref(0)
 const clearingLogs = ref(false)
 
-const allLogs = computed(() => {
-  return [...(statusLogs.value || [])]
-    .slice(-100)
-    .sort((a: any, b: any) => a.ts - b.ts)
+const allLogs = computed<RuntimeLogEntry[]>(() => {
+  const unique = new Map<string, RuntimeLogEntry>()
+  for (const log of (statusLogs.value || []).map((log: any) => normalizeRuntimeLog(log)))
+    unique.set(log.id, log)
+  return [...unique.values()].sort((a, b) => a.ts - b.ts)
 })
 
 type LogLevel = 'error' | 'warn' | 'success' | 'info'
@@ -53,12 +57,13 @@ function getLogLevel(log: any): LogLevel {
 }
 
 /**
- * 连续出现、仅数字不同的同类日志合并为一行（×N + 时间范围），保留最新一条的内容，
- * 避免巡查类日志刷屏。
+ * 多维过滤（模块/事件/级别/关键词，由 matchesRuntimeLog 统一判定）后，
+ * 连续出现、仅数字不同的同类日志合并为一行（×N + 时间范围），避免巡查类日志刷屏。
  */
 const logGroups = computed(() => {
   const groups: Array<{ key: string, log: any, level: LogLevel, count: number, firstTime: string }> = []
-  for (const log of allLogs.value) {
+  const filtered = allLogs.value.filter(log => matchesRuntimeLog(log, filter))
+  for (const log of filtered) {
     const signature = `${log.tag}|${log.meta?.event || ''}|${String(log.msg || '').replace(/\d+/g, '#')}`
     const last = groups[groups.length - 1]
     if (last && last.key === signature) {
@@ -75,11 +80,11 @@ const filter = reactive({
   module: '',
   event: '',
   keyword: '',
-  isWarn: '',
+  level: '',
 })
 
 const hasActiveLogFilter = computed(() =>
-  !!(filter.module || filter.event || filter.keyword || filter.isWarn),
+  !!(filter.module || filter.event || filter.keyword || filter.level),
 )
 
 const modules = [
@@ -88,6 +93,8 @@ const modules = [
   { label: '好友', value: 'friend' },
   { label: '仓库', value: 'warehouse' },
   { label: '任务', value: 'task' },
+  { label: '活动', value: 'activity' },
+  { label: '牧场', value: 'ranch' },
   { label: '系统', value: 'system' },
 ]
 
@@ -128,8 +135,9 @@ function getEventLabel(event: string) {
 
 const logs = [
   { label: '所有等级', value: '' },
-  { label: '普通', value: 'info' },
+  { label: '常规', value: 'info' },
   { label: '警告', value: 'warn' },
+  { label: '错误', value: 'error' },
 ]
 
 const displayName = computed(() => {
@@ -197,20 +205,67 @@ function formatBucketTime(item: any) {
 // Next Check Countdown
 const nextFarmCheck = ref('--:--:--')
 const nextFriendCheck = ref('--:--:--')
-const localUptime = ref(0)
+const nextHelpCheck = ref('--:--:--')
+const nextStealCheck = ref('--:--:--')
+const countdownNow = ref(Date.now())
+/**
+ * 「已运行」时长。
+ *
+ * 旧实现是一个 ref：每秒 `localUptime++`，同时每 10s 被整包 status 的
+ * `uptime`（其实还是后端进程的 process.uptime）覆盖回去。两个来源来回
+ * 覆盖，数字会忽进忽退，长度一变整行就换行错位，看起来就是「位置跳来跳去」。
+ *
+ * 现在改成「服务端锚点 + 本地时间差」的 computed：
+ * - 单调递增，不会被覆盖回退；
+ * - 每秒只按本地时钟算，不依赖推送节奏；
+ * - 服务端值只作为锚点，且只接受明显推进的锚点，避免取整造成 ±1 抖动。
+ */
+const uptimeAnchorSec = ref(0)
+const uptimeAnchorAt = ref(0)
+const localUptime = computed(() => {
+  if (!uptimeAnchorSec.value)
+    return 0
+  const drift = Math.max(0, (countdownNow.value - uptimeAnchorAt.value) / 1000)
+  return Math.floor(uptimeAnchorSec.value + drift)
+})
+const farmCountdownTotal = ref(1)
+const helpCountdownTotal = ref(1)
+const stealCountdownTotal = ref(1)
 let localNextFarmRemainSec = 0
 let localNextFriendRemainSec = 0
+let localNextHelpRemainSec = 0
+let localNextStealRemainSec = 0
 let farmQuiet = false
 let friendQuiet = false
+let helpEnabled = true
+let stealEnabled = true
+
+function syncCountdownTotal(total: typeof farmCountdownTotal, remain: number, previousRemain: number) {
+  if (remain > previousRemain || total.value <= 1)
+    total.value = Math.max(1, remain)
+}
+
+function getCountdownProgress(remain: number, total: number) {
+  return Math.max(0, Math.min(100, (remain / Math.max(1, total)) * 100))
+}
+
+/** 环形进度：与桌面副本一致，用 conic-gradient 画圆环，外圈颜色按模块区分。 */
+function getCountdownRingStyle(progress: number, color: string) {
+  return {
+    background: `conic-gradient(${color} ${progress}%, color-mix(in srgb, ${color} 14%, transparent) 0)`,
+  }
+}
 
 function updateCountdowns() {
   // Update uptime
+  countdownNow.value = Date.now()
   if (!status.value?.connection?.connected) {
     nextFarmCheck.value = '账号未登录'
     nextFriendCheck.value = '账号未登录'
+    nextHelpCheck.value = '账号未登录'
+    nextStealCheck.value = '账号未登录'
   }
   else {
-    localUptime.value++
     if (farmQuiet) {
       nextFarmCheck.value = '静默中'
     }
@@ -232,6 +287,35 @@ function updateCountdowns() {
     else {
       nextFriendCheck.value = '巡查中...'
     }
+
+    // 帮助与偷菜各自独立：开关关闭时显示「已关闭」，不再显示读数。
+    if (!helpEnabled) {
+      nextHelpCheck.value = '已关闭'
+    }
+    else if (friendQuiet) {
+      nextHelpCheck.value = '静默中'
+    }
+    else if (localNextHelpRemainSec > 0) {
+      localNextHelpRemainSec--
+      nextHelpCheck.value = formatDuration(localNextHelpRemainSec)
+    }
+    else {
+      nextHelpCheck.value = '巡查中...'
+    }
+
+    if (!stealEnabled) {
+      nextStealCheck.value = '已关闭'
+    }
+    else if (friendQuiet) {
+      nextStealCheck.value = '静默中'
+    }
+    else if (localNextStealRemainSec > 0) {
+      localNextStealRemainSec--
+      nextStealCheck.value = formatDuration(localNextStealRemainSec)
+    }
+    else {
+      nextStealCheck.value = '巡查中...'
+    }
   }
 }
 
@@ -246,19 +330,50 @@ watch(() => status.value?.nextChecks, (nextChecks) => {
       ?? nextChecks.helpRemainSec
       ?? nextChecks.stealRemainSec
       ?? 0
+    // 帮助与偷菜各自独立计时：worker 各自下发，缺省时回落到统一的好友轮。
+    localNextHelpRemainSec = nextChecks.helpRemainSec ?? localNextFriendRemainSec
+    localNextStealRemainSec = nextChecks.stealRemainSec ?? localNextFriendRemainSec
+    syncCountdownTotal(helpCountdownTotal, localNextHelpRemainSec, localNextHelpRemainSec)
+    syncCountdownTotal(stealCountdownTotal, localNextStealRemainSec, localNextStealRemainSec)
     farmQuiet = !!nextChecks.farmQuiet
     friendQuiet = nextChecks.friendQuiet
       ?? nextChecks.helpQuiet
       ?? nextChecks.stealQuiet
       ?? false
+    helpEnabled = nextChecks.helpEnabled !== false
+    stealEnabled = nextChecks.stealEnabled !== false
     updateCountdowns() // Update immediately
   }
 }, { immediate: true })
 
+/**
+ * 服务端只作为锚点：明显推进才接受，避免整包推送到来时间与每秒自增互相覆盖。
+ *
+ * 但账号重启（或掉线后换新 worker）时 uptime 会归零，那也必须跟着归零，
+ * 否则「已运行」会一直卡着重启前的数字。用「回退幅度」区分两种情况：
+ * 小幅回退（< 60s）是取整/网络延迟造成的抖动，忽略；大幅回退视为重启，重新锚定。
+ */
 watch(() => status.value?.uptime, (uptime) => {
-  if (uptime !== undefined)
-    localUptime.value = uptime
+  const next = Number(uptime)
+  if (!Number.isFinite(next) || next <= 0)
+    return
+  const anchorAt = Date.now()
+  const projected = uptimeAnchorSec.value
+    ? uptimeAnchorSec.value + Math.max(0, (anchorAt - uptimeAnchorAt.value) / 1000)
+    : 0
+  const rolledBack = next + 60 < projected
+  // 允许 0.5s 的浮点/取整误差；不属于重启的小幅回退直接忽略，保证数字单调。
+  if (!rolledBack && next + 0.5 < projected)
+    return
+  uptimeAnchorSec.value = next
+  uptimeAnchorAt.value = anchorAt
 }, { immediate: true })
+
+/** 切换账号时立刻清空，避免短暂显示上一个账号的运行时长。 */
+watch(currentAccountId, () => {
+  uptimeAnchorSec.value = 0
+  uptimeAnchorAt.value = 0
+})
 
 function formatDuration(seconds: number) {
   if (seconds <= 0)
@@ -325,14 +440,42 @@ const OPS_COLLAPSED_COUNT = 8
 
 const showAllOperations = ref(false)
 
-const visibleOperations = computed(() => {
+/**
+ * 今日统计分区：有记录（>0）的动作按次数降序展示，无记录的收进折叠区。
+ * 「展开全部」按钮默认只显示前 8 项，这里额外给出按活跃度排序的视图，
+ * 让最常发生的动作始终排在前面（固定 OP_META 顺序会把低频动作顶到显眼位置）。
+ */
+const operationGroups = computed(() => {
   const entries = Object.entries(filteredOperations.value)
+  return {
+    active: entries.filter(([, value]) => Number(value) > 0).sort((a, b) => Number(b[1]) - Number(a[1])),
+    inactive: entries.filter(([, value]) => !(Number(value) > 0)),
+  }
+})
+
+/**
+ * 动作网格的展示顺序：有记录的按次数降序在前，无记录的按 OP_META 固定顺序垫后。
+ * 「展开全部」关闭时仍只截取前 8 项，避免一屏塞进几十个格子。
+ */
+const orderedOperations = computed(() => {
+  const { active, inactive } = operationGroups.value
+  return [...active, ...inactive]
+})
+
+const visibleOperations = computed(() => {
+  const entries = orderedOperations.value
   if (showAllOperations.value || entries.length <= OPS_COLLAPSED_COUNT)
     return Object.fromEntries(entries)
   return Object.fromEntries(entries.slice(0, OPS_COLLAPSED_COUNT))
 })
 
-const hasMoreOperations = computed(() => Object.keys(filteredOperations.value).length > OPS_COLLAPSED_COUNT)
+const hasMoreOperations = computed(() => orderedOperations.value.length > OPS_COLLAPSED_COUNT)
+
+/** 今日四项增量：金币 / 经验 / 金豆 / 点券。 */
+const todayGoldGained = computed(() => Number(status.value?.todayGoldGained ?? status.value?.sessionGoldGained ?? 0))
+const todayExpGained = computed(() => Number(status.value?.todayExpGained ?? status.value?.sessionExpGained ?? 0))
+const todayGoldBeanGained = computed(() => Number(status.value?.todayGoldBeanGained ?? status.value?.sessionGoldBeanGained ?? 0))
+const todayCouponGained = computed(() => Number(status.value?.todayCouponGained ?? status.value?.sessionCouponGained ?? 0))
 
 function getOpName(key: string | number) {
   return OP_META[String(key)]?.label || String(key)
@@ -342,7 +485,70 @@ function getOpIcon(key: string | number) {
   return OP_META[String(key)]?.icon
 }
 
-const platformLabel = computed(() => getPlatformLabel(accountStore.currentAccount?.platform))
+/**
+ * 平台标签缓存：账号列表刷新失败的瞬间 currentAccount 会变 undefined，
+ * 直接绑 computed 会让「微信 / QQ」这两个字短暂消失，后面元素跟着左移。
+ */
+const platformLabel = ref('')
+watch(() => accountStore.currentAccount?.platform, (platform) => {
+  const label = getPlatformLabel(platform)
+  if (label)
+    platformLabel.value = label
+}, { immediate: true })
+
+/** 与旧版一致：状态就绪且连接在线时才展示真实倒计时。 */
+const checksReady = computed(() => !!status.value && !statusStore.error && status.value?.connection?.connected === true)
+
+const syncLabel = computed(() => {
+  if (!currentAccountId.value)
+    return '未选择账号'
+  if (statusStore.error)
+    return '同步失败'
+  if (!status.value)
+    return '正在同步'
+  if (!status.value?.connection?.connected)
+    return '账号未连接'
+  return realtimeConnected.value ? '实时同步中' : '轮询同步中'
+})
+
+interface DashboardCheck {
+  key: string
+  label: string
+  icon: string
+  time: string
+  progress: number
+  color: string
+  description?: string
+}
+
+const countdowns = computed((): DashboardCheck[] => [
+  {
+    key: 'farm',
+    label: '农场',
+    icon: 'i-carbon-sprout',
+    color: '#22c55e',
+    time: nextFarmCheck.value,
+    progress: getCountdownProgress(localNextFarmRemainSec, farmCountdownTotal.value),
+  },
+  {
+    key: 'help',
+    label: '帮助',
+    icon: 'i-carbon-user-multiple',
+    color: '#3b82f6',
+    time: nextHelpCheck.value,
+    progress: helpEnabled ? getCountdownProgress(localNextHelpRemainSec, helpCountdownTotal.value) : 0,
+    description: helpEnabled ? '与偷菜同轮好友巡查' : '好友帮助已关闭',
+  },
+  {
+    key: 'steal',
+    label: '偷菜',
+    icon: 'i-carbon-run',
+    color: '#f97316',
+    time: nextStealCheck.value,
+    progress: stealEnabled ? getCountdownProgress(localNextStealRemainSec, stealCountdownTotal.value) : 0,
+    description: stealEnabled ? '与帮助同轮好友巡查' : '好友偷菜已关闭',
+  },
+])
 
 // —— 一键重连（仅微信账号）——
 // 微信账号的登录凭据可再生：后端能用 loginBuffer/refreshtoken 换新 Code 并重启 Worker，
@@ -432,6 +638,22 @@ function formatAssetAmount(value: unknown) {
   return Number.isFinite(amount) ? Math.max(0, Math.trunc(amount)).toLocaleString('zh-CN') : '0'
 }
 
+/**
+ * 紧凑金额：上万显示「万」、上亿显示「亿」。
+ * 金币与金豆豆动辄几十万，纯千分位会把卡片撑得很宽、把倒计时挤到下一行。
+ */
+function formatCompactAsset(value: unknown): string {
+  const num = Number(value)
+  if (!Number.isFinite(num))
+    return '0'
+  const abs = Math.abs(num)
+  if (abs >= 100000000)
+    return `${(num / 100000000).toFixed(2)}亿`
+  if (abs >= 10000)
+    return `${(num / 10000).toFixed(2)}万`
+  return Math.trunc(num).toLocaleString('zh-CN')
+}
+
 async function refreshBag(force = false) {
   if (!currentAccountId.value)
     return
@@ -472,7 +694,6 @@ async function refresh(forceReloadLogs = false) {
         module: filter.module || undefined,
         event: filter.event || undefined,
         keyword: filter.keyword || undefined,
-        isWarn: filter.isWarn === 'warn' ? true : filter.isWarn === 'info' ? false : undefined,
       })
     }
 
@@ -494,7 +715,43 @@ watch(currentAccountId, async () => {
   await refresh()
   await refreshDiamond()
   scrollToBottom()
+  if (showCareerModal.value)
+    void loadCareer()
 })
+
+// 个人页（角色生涯）：入口只在首页头像。
+const showCareerModal = ref(false)
+const careerLoading = ref(false)
+const careerError = ref('')
+const careerProfile = ref<Record<string, any>>({})
+const careerItems = ref<any[]>([])
+
+async function loadCareer() {
+  if (!currentAccountId.value)
+    return
+  careerLoading.value = true
+  careerError.value = ''
+  try {
+    const { data } = await api.get('/api/career')
+    if (!data?.ok)
+      throw new Error(getApiErrorMessage(data, '生涯记录读取失败'))
+    careerProfile.value = data.data || {}
+    careerItems.value = data.data?.items || []
+  }
+  catch (e: any) {
+    careerError.value = getApiErrorMessage(e, '生涯记录读取失败')
+  }
+  finally {
+    careerLoading.value = false
+  }
+}
+
+function openCareer() {
+  if (!currentAccountId.value)
+    return
+  showCareerModal.value = true
+  void loadCareer()
+}
 
 watch(() => status.value?.connection?.connected, (connected) => {
   if (connected) {
@@ -600,11 +857,11 @@ useIntervalFn(updateCountdowns, 1000)
       <!-- 账号：身份、在线状态与等级进度 -->
       <section class="ov-card ov-account">
         <div class="ov-account__head">
-          <div class="ov-avatar" :class="{ 'is-online': isOnline }">
+          <button type="button" class="ov-avatar" :class="{ 'is-online': isOnline }" aria-label="查看角色生涯" title="查看角色生涯" @click="openCareer">
             <img v-if="accountAvatar && accountAvatar !== failedAccountAvatar" :key="accountAvatar" :src="accountAvatar" alt="" @error="handleAccountAvatarError">
             <span v-else class="i-carbon-user-avatar" />
             <i class="ov-avatar__dot" />
-          </div>
+          </button>
           <div class="min-w-0 flex-1">
             <div class="ov-account__name-row">
               <strong class="ov-account__name" :title="displayName">{{ displayName }}</strong>
@@ -661,9 +918,9 @@ useIntervalFn(updateCountdowns, 1000)
         <div class="ov-tiles">
           <div class="ov-tile">
             <span class="ov-tile__label"><span class="i-fas-coins text-yellow-500" />金币</span>
-            <strong class="ov-tile__value">{{ formatAssetAmount(status?.status?.gold) }}</strong>
-            <small v-if="(status?.sessionGoldGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionGoldGained || 0) > 0 ? 'is-up' : 'is-down'">
-              本次 {{ (status?.sessionGoldGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionGoldGained) }}
+            <strong class="ov-tile__value">{{ formatCompactAsset(status?.status?.gold) }}</strong>
+            <small v-if="(status?.runGoldGained || 0) !== 0" class="ov-tile__delta" :class="(status?.runGoldGained || 0) > 0 ? 'is-up' : 'is-down'">
+              本次 {{ (status?.runGoldGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.runGoldGained) }}
             </small>
             <small v-if="todayGoldEarned() !== 0" class="ov-tile__delta is-up">
               今日 +{{ formatPlainNumber(todayGoldEarned()) }}
@@ -671,9 +928,9 @@ useIntervalFn(updateCountdowns, 1000)
           </div>
           <div class="ov-tile">
             <span class="ov-tile__label"><span class="i-fas-ticket-alt text-emerald-500" />点券</span>
-            <strong class="ov-tile__value">{{ formatAssetAmount(status?.status?.coupon) }}</strong>
-            <small v-if="(status?.sessionCouponGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionCouponGained || 0) > 0 ? 'is-up' : 'is-down'">
-              本次 {{ (status?.sessionCouponGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionCouponGained) }}
+            <strong class="ov-tile__value">{{ formatCompactAsset(status?.status?.coupon) }}</strong>
+            <small v-if="(status?.runCouponGained || 0) !== 0" class="ov-tile__delta" :class="(status?.runCouponGained || 0) > 0 ? 'is-up' : 'is-down'">
+              本次 {{ (status?.runCouponGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.runCouponGained) }}
             </small>
             <small v-if="(status?.todayCouponGained || 0) !== 0" class="ov-tile__delta" :class="(status?.todayCouponGained || 0) > 0 ? 'is-up' : 'is-down'">
               今日 {{ (status?.todayCouponGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.todayCouponGained) }}
@@ -681,7 +938,7 @@ useIntervalFn(updateCountdowns, 1000)
           </div>
           <div class="ov-tile">
             <span class="ov-tile__label"><span class="i-fas-seedling text-amber-500" />金豆豆</span>
-            <strong class="ov-tile__value">{{ formatAssetAmount(status?.status?.goldBean) }}</strong>
+            <strong class="ov-tile__value">{{ formatCompactAsset(status?.status?.goldBean) }}</strong>
             <small v-if="(status?.sessionGoldBeanGained || 0) !== 0" class="ov-tile__delta" :class="(status?.sessionGoldBeanGained || 0) > 0 ? 'is-up' : 'is-down'">
               本次 {{ (status?.sessionGoldBeanGained || 0) > 0 ? '+' : '' }}{{ formatPlainNumber(status?.sessionGoldBeanGained) }}
             </small>
@@ -747,7 +1004,7 @@ useIntervalFn(updateCountdowns, 1000)
               />
 
               <BaseSelect
-                v-model="filter.isWarn"
+                v-model="filter.level"
                 :options="logs"
                 @change="onLogFilterChange"
               />
@@ -816,27 +1073,30 @@ useIntervalFn(updateCountdowns, 1000)
       <!-- Right Column Stack -->
       <div class="order-1 min-w-0 flex flex-col gap-6 md:order-2 md:w-1/4 md:self-start">
         <!-- Next Checks -->
-        <div class="flex flex-col farm-card rounded-2xl bg-white p-6 shadow-md dark:bg-gray-800">
-          <h3 class="mb-4 flex items-center gap-2 text-lg font-display font-medium">
-            <span class="i-carbon-time" /> <span>下次巡查倒计时</span>
+        <div class="flex flex-col farm-card rounded-2xl bg-white p-5 shadow-md dark:bg-gray-800">
+          <h3 class="mb-3 flex items-center justify-between gap-2 text-lg font-display font-medium">
+            <span class="flex items-center gap-2"><span class="i-carbon-hourglass" /> <span>下次检查倒计时</span></span>
+            <span class="dashboard-sync" :class="{ 'is-online': checksReady }">
+              <span class="dashboard-sync-dot" />{{ syncLabel }}
+            </span>
           </h3>
-          <div class="flex flex-col justify-center gap-4">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                <span class="i-carbon-sprout text-lg text-green-500" />
-                <span>农场</span>
+          <div class="grid grid-cols-3 gap-2">
+            <div
+              v-for="check in countdowns"
+              :key="check.key"
+              class="min-w-0 flex flex-col items-center text-center"
+            >
+              <div
+                class="h-18 w-18 flex items-center justify-center rounded-full p-1"
+                :style="getCountdownRingStyle(check.progress, check.color)"
+              >
+                <div class="h-full w-full flex flex-col items-center justify-center rounded-full bg-white dark:bg-gray-800">
+                  <span :class="check.icon" class="text-xl" :style="{ color: check.color }" aria-hidden="true" />
+                  <span class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ check.label }}</span>
+                </div>
               </div>
-              <div class="text-lg tabular-nums font-bold">
-                {{ nextFarmCheck }}
-              </div>
-            </div>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                <span class="i-carbon-collaborate text-lg text-blue-500" />
-                <span>好友任务</span>
-              </div>
-              <div class="text-lg tabular-nums font-bold">
-                {{ nextFriendCheck }}
+              <div class="mt-1.5 w-full truncate text-sm font-bold font-mono 2xl:text-base" :title="checksReady ? check.time : syncLabel">
+                {{ checksReady ? check.time : '—' }}
               </div>
             </div>
           </div>
@@ -864,20 +1124,68 @@ useIntervalFn(updateCountdowns, 1000)
             description="启动账号后显示今日收获与互动统计"
             icon="i-carbon-connection-signal-off"
           />
-          <div v-else class="grid grid-cols-2 gap-2 2xl:gap-3">
-            <div
-              v-for="(val, key) in visibleOperations"
-              :key="key"
-              class="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 transition-transform hover:scale-105 dark:bg-gray-700/30"
-            >
-              <div class="flex items-center gap-2">
-                <span class="select-none text-base 2xl:text-lg" :class="getOpIcon(key)" />
-                <div class="text-xs text-gray-500 2xl:text-sm">
-                  {{ getOpName(key) }}
+          <div v-else>
+            <div class="grid grid-cols-2 mb-2 gap-2 2xl:gap-3" role="region" aria-label="今日金币、经验、金豆与点券增量">
+              <div class="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 transition-transform hover:scale-105 dark:bg-gray-700/30">
+                <div class="flex items-center gap-2">
+                  <img src="/game-config/resource-icons/gold.png" alt="金币" class="h-5 w-5 object-contain 2xl:h-6 2xl:w-6" aria-hidden="true">
+                  <div class="text-xs text-gray-500 2xl:text-sm">
+                    金币
+                  </div>
+                </div>
+                <div class="ov-today-value text-sm font-bold 2xl:text-base" :class="{ 'is-down': todayGoldGained < 0 }">
+                  {{ todayGoldGained }}
                 </div>
               </div>
-              <div class="text-sm font-bold 2xl:text-base">
-                {{ val }}
+              <div class="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 transition-transform hover:scale-105 dark:bg-gray-700/30">
+                <div class="flex items-center gap-2">
+                  <span class="i-carbon-star-filled text-base text-sky-500 2xl:text-lg" aria-hidden="true" />
+                  <div class="text-xs text-gray-500 2xl:text-sm">
+                    经验
+                  </div>
+                </div>
+                <div class="text-sm font-bold 2xl:text-base">
+                  {{ todayExpGained }}
+                </div>
+              </div>
+              <div class="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 transition-transform hover:scale-105 dark:bg-gray-700/30">
+                <div class="flex items-center gap-2">
+                  <img src="/game-config/resource-icons/gold-bean.png" alt="金豆" class="h-5 w-5 object-contain 2xl:h-6 2xl:w-6" aria-hidden="true">
+                  <div class="text-xs text-gray-500 2xl:text-sm">
+                    金豆
+                  </div>
+                </div>
+                <div class="ov-today-value text-sm font-bold 2xl:text-base" :class="{ 'is-down': todayGoldBeanGained < 0 }">
+                  {{ todayGoldBeanGained }}
+                </div>
+              </div>
+              <div class="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 transition-transform hover:scale-105 dark:bg-gray-700/30">
+                <div class="flex items-center gap-2">
+                  <img src="/game-config/resource-icons/coupon.png" alt="点券" class="h-5 w-5 object-contain 2xl:h-6 2xl:w-6" aria-hidden="true">
+                  <div class="text-xs text-gray-500 2xl:text-sm">
+                    点券
+                  </div>
+                </div>
+                <div class="ov-today-value text-sm font-bold 2xl:text-base" :class="{ 'is-down': todayCouponGained < 0 }">
+                  {{ todayCouponGained }}
+                </div>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2 2xl:gap-3">
+              <div
+                v-for="(val, key) in visibleOperations"
+                :key="key"
+                class="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2 transition-transform hover:scale-105 dark:bg-gray-700/30"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="select-none text-base 2xl:text-lg" :class="getOpIcon(key)" />
+                  <div class="text-xs text-gray-500 2xl:text-sm">
+                    {{ getOpName(key) }}
+                  </div>
+                </div>
+                <div class="text-sm font-bold 2xl:text-base">
+                  {{ val }}
+                </div>
               </div>
             </div>
           </div>
@@ -885,6 +1193,19 @@ useIntervalFn(updateCountdowns, 1000)
       </div>
     </div>
   </div>
+
+  <Teleport to="body">
+    <AccountCareerModal
+      :show="showCareerModal"
+      :account="currentAccount"
+      :profile="careerProfile"
+      :items="careerItems"
+      :loading="careerLoading"
+      :error="careerError"
+      @close="showCareerModal = false"
+      @refresh="loadCareer"
+    />
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1340,5 +1661,31 @@ useIntervalFn(updateCountdowns, 1000)
   .log-row__body {
     grid-column: 1 / -1;
   }
+}
+
+/* 同步状态徽标：标题右侧显示「实时同步中 / 轮询同步中 / 账号未连接」。 */
+.dashboard-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  color: var(--ui-muted);
+  background: var(--ui-surface-soft);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.dashboard-sync.is-online {
+  color: var(--theme-primary);
+  background: color-mix(in srgb, var(--theme-primary) 12%, transparent);
+}
+
+.dashboard-sync-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: currentColor;
 }
 </style>

@@ -14,20 +14,34 @@ const content = ref<HTMLElement>()
 const overflowing = ref(false)
 const show = ref(false)
 const tooltipWidth = ref(384)
+/** 测量结果没变时不重写状态：改 tooltipWidth 会让浮层重新布局，反过来又触发本组件的尺寸观察。 */
+let lastOverflowState: boolean | null = null
+let lastTooltipWidth = 0
 
 function measureOverflow() {
   const element = content.value
-  overflowing.value = !!element && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1)
-  if (element && overflowing.value) {
+  const nextOverflowing = !!element && (element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1)
+  if (nextOverflowing !== lastOverflowState) {
+    lastOverflowState = nextOverflowing
+    overflowing.value = nextOverflowing
+  }
+  if (!nextOverflowing) {
+    if (show.value)
+      show.value = false
+    return
+  }
+  if (element) {
     const bounds = element.getBoundingClientRect()
     const viewport = element.ownerDocument.documentElement.clientWidth
     const center = (bounds.left + bounds.right) / 2
     // 以文字位置计算居中可用宽度，避免窄屏上自动翻转后仍越界。
     const centeredWidth = 2 * (Math.min(center, viewport - center) - 12)
-    tooltipWidth.value = Math.max(160, Math.min(384, viewport - 24, Math.floor(centeredWidth)))
+    const nextWidth = Math.max(160, Math.min(384, viewport - 24, Math.floor(centeredWidth)))
+    if (nextWidth !== lastTooltipWidth) {
+      lastTooltipWidth = nextWidth
+      tooltipWidth.value = nextWidth
+    }
   }
-  if (!overflowing.value)
-    show.value = false
 }
 
 function setShow(value: boolean) {

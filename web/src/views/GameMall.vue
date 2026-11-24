@@ -1,18 +1,24 @@
 <script setup lang="ts">
+import { useIntervalFn } from '@vueuse/core'
 import { NTab } from 'naive-ui/es/tabs'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MallCatalogPanel from '@/components/commerce/MallCatalogPanel.vue'
+import MysteryArrivalBanner from '@/components/commerce/MysteryArrivalBanner.vue'
 import MysteryShopPanel from '@/components/commerce/MysteryShopPanel.vue'
 import PageTabs from '@/components/PageTabs.vue'
+import { useAccountStore } from '@/stores/account'
 import { useCommerceStore } from '@/stores/commerce'
 
 type MallTab = 'mall' | 'svip' | 'mystery' | 'limited' | 'props'
 
 const route = useRoute()
 const router = useRouter()
-const { purchasingGoodsId, mysteryPurchasing } = storeToRefs(useCommerceStore())
+const accountStore = useAccountStore()
+const commerceStore = useCommerceStore()
+const { currentAccountId } = storeToRefs(accountStore)
+const { purchasingGoodsId, mysteryPurchasing } = storeToRefs(commerceStore)
 const tabs: Array<{ key: MallTab, label: string, icon: string }> = [
   { key: 'mall', label: '游戏商城', icon: 'i-carbon-shopping-bag' },
   { key: 'limited', label: '限时商店', icon: 'i-carbon-timer' },
@@ -28,6 +34,25 @@ function selectTab(tab: MallTab) {
     return
   router.replace({ query: { ...route.query, tab: tab === 'mall' ? undefined : tab }, hash: route.hash })
 }
+
+/** 来访横幅常驻商城页顶部；停在其它页签时也要能读到当前来访与购买状态。 */
+function refreshMysteryBanner() {
+  const id = String(currentAccountId.value || '').trim()
+  if (!id)
+    return
+  void commerceStore.fetchMystery(id)
+  void commerceStore.fetchMysteryHistory(id)
+}
+
+onMounted(() => {
+  if (activeTab.value !== 'mystery')
+    refreshMysteryBanner()
+})
+watch(currentAccountId, () => refreshMysteryBanner())
+useIntervalFn(() => {
+  if (activeTab.value !== 'mystery')
+    refreshMysteryBanner()
+}, 30000)
 </script>
 
 <template>
@@ -41,6 +66,7 @@ function selectTab(tab: MallTab) {
       </NTab>
     </PageTabs>
 
+    <MysteryArrivalBanner @go="selectTab('mystery')" />
     <MysteryShopPanel v-if="activeTab === 'mystery'" />
     <MallCatalogPanel v-else :slot-type="activeTab === 'svip' ? 4 : activeTab === 'limited' ? 5 : 1" :props-shop="activeTab === 'props'" />
   </div>

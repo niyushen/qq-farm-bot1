@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useIntervalFn } from '@vueuse/core'
 import { NButton } from 'naive-ui/es/button'
 import { NDropdown } from 'naive-ui/es/dropdown'
 import { NInputNumber } from 'naive-ui/es/input-number'
@@ -8,6 +7,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { getApiErrorMessage } from '@/api'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { useFarmAutoRefreshInterval } from '@/composables/useFarmAutoRefresh'
 import { useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { usePetStore } from '@/stores/pet'
@@ -644,7 +644,8 @@ watch(selectedCategory, () => {
   selectedForBatch.value.clear()
 })
 
-useIntervalFn(loadBag, 60000)
+// 与土地面板共用同一自动刷新开关（默认关闭，可配置 10~600 秒）
+useFarmAutoRefreshInterval(loadBag)
 </script>
 
 <template>

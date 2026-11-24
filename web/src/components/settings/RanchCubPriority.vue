@@ -72,8 +72,8 @@ const sorted = computed(() => {
     stock.set(item.id, { ...item, count: count.toString() })
   }
   return groups.map((group) => {
-    const order = automation.value[group.key] ?? []
-    const ranks = new Map(order.map((id, index) => [id, index]))
+    const order: number[] = automation.value[group.key] ?? []
+    const ranks = new Map<number, number>(order.map((id: number, index: number) => [id, index]))
     const cubs = [...stock.values()].filter(item => item.husbandryType === group.housing)
     cubs.sort((a, b) => (ranks.get(a.id) ?? order.length) - (ranks.get(b.id) ?? order.length)
       || b.animalId! - a.animalId! || a.id - b.id)
@@ -92,7 +92,7 @@ function move(key: PriorityKey, id: number, target: number, control?: EventTarge
   const visible = new Set(order)
   let position = 0
   // 缺货幼崽保留已保存的位置，补货后仍按原优先级放养。
-  const merged = (automation.value[key] ?? []).map(item => visible.has(item) ? order[position++]! : item)
+  const merged = ((automation.value[key] ?? []) as number[]).map((item: number) => visible.has(item) ? order[position++]! : item)
   automation.value = { ...automation.value, [key]: [...merged, ...order.slice(position)] }
   status.value = `${cubs[from]!.name}已移到第 ${target + 1} 位`
   if (control instanceof HTMLElement) {

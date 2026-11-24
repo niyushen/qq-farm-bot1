@@ -22,12 +22,25 @@ enum EnterReason {
 
 // ============ 进入好友农场 ============
 message EnterRequest {
-    int64 host_gid = 1;      // 好友的GID
-    int32 reason = 2;        // EnterReason 进入原因
+    int64 host_gid = 1;       // 好友的GID
+    int32 reason = 2;         // EnterReason 进入原因
+    int32 host_type = 3;      // 抓包: 0
+    int64 share_id = 4;       // 抓包: 0
+    string share_open_id = 5; // 分享人 open_id
+    int64 share_cfg_id = 6;   // 抓包: 0
+    string share_key = 7;     // 分享卡片 32 位 key（reason=5 时必带）
 }
 
 message BriefDogInfo {
     int64 dog_id = 1;      // 好友当前上场的狗 ID；缺省表示没有上场狗
+}
+
+// 对方与我的社交关系（Enter 回包字段 7）
+message HostRelationInfo {
+    // 完整好友对象，本项目不解析，用 bytes 承接以保持 wire 兼容（length-delimited）。
+    bytes game_friend = 1;
+    bool is_friend = 2;              // true = 已是好友，无需再申请
+    bool is_community_member = 3;    // 同小区成员
 }
 
 message EnterReply {
@@ -35,7 +48,12 @@ message EnterReply {
     repeated gamepb.plantpb.LandInfo lands = 2;     // 好友的所有土地
     BriefDogInfo brief_dog_info = 3;                // 好友当前上场的狗
     // field 4: nudge_info (不需要)
+    bool host_at_home = 6;                          // 对方是否在家
+    HostRelationInfo host_relation = 7;             // 好友关系（申请前先判 is_friend）
+    int64 unix_milli = 8;                           // 服务器时间
+    bool is_tourist = 9;                            // 本次是否为游客访问
     gamepb.weatherpb.WeatherStatus weather = 13;    // 当前好友农场的现场天气（最新版权威来源）
+    string apply_token = 10;  // 分享卡片进入时带回的好友申请令牌
 }
 
 // ============ 离开好友农场 ============

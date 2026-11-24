@@ -3,7 +3,9 @@ import type { FertilizerType } from '@/stores/farm'
 import type { FriendInteractionItemDto, FriendInteractionResultDto } from '@/stores/friend'
 import { useIntervalFn, useResizeObserver } from '@vueuse/core'
 import { NButton } from 'naive-ui/es/button'
+import { NInputNumber } from 'naive-ui/es/input-number'
 import { NPopover } from 'naive-ui/es/popover'
+import { NSwitch } from 'naive-ui/es/switch'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -14,6 +16,7 @@ import LandCard from '@/components/FarmLandCard.vue'
 import LandDetailModal from '@/components/LandDetailModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { useFarmAutoRefresh, useFarmAutoRefreshInterval } from '@/composables/useFarmAutoRefresh'
 import { useAccountStore } from '@/stores/account'
 import { useFarmStore } from '@/stores/farm'
 import { useSettingStore } from '@/stores/setting'
@@ -608,17 +611,17 @@ const { pause, resume } = useIntervalFn(() => {
   }
 }, 1000)
 
-const { pause: pauseRefresh, resume: resumeRefresh } = useIntervalFn(refreshFarmData, 60000)
+// 自动刷新：跟随共享开关（默认关闭，用户可在工具栏配置 10~600 秒）
+const { autoRefreshEnabled, autoRefreshSeconds } = useFarmAutoRefresh()
+useFarmAutoRefreshInterval(refreshFarmData)
 
 onMounted(() => {
   resume()
-  resumeRefresh()
 })
 
 onUnmounted(() => {
   window.cancelAnimationFrame(gridResizeFrame)
   pause()
-  pauseRefresh()
 })
 </script>
 
@@ -685,6 +688,29 @@ onUnmounted(() => {
               <span class="i-carbon-renew" />
             </template>
           </NButton>
+        </div>
+        <!-- 自动刷新独立整行：与标题/按钮分开，避免手机上显示不全 -->
+        <div class="farm-auto-refresh" title="自动刷新农场数据：开启后按设定的秒数周期刷新土地、背包、任务；默认关闭">
+          <span class="farm-auto-refresh__label">
+            <span class="i-carbon-renew" aria-hidden="true" />自动刷新
+          </span>
+          <NSwitch v-model:value="autoRefreshEnabled" size="small" :disabled="!currentAccountId" aria-label="自动刷新开关" />
+          <NInputNumber
+            v-if="autoRefreshEnabled"
+            v-model:value="autoRefreshSeconds"
+            size="small"
+            class="!w-24"
+            :min="10"
+            :max="600"
+            :step="10"
+            :show-button="false"
+            :disabled="!currentAccountId"
+            aria-label="自动刷新秒数"
+          >
+            <template #suffix>
+              <span class="text-xs text-gray-400">秒</span>
+            </template>
+          </NInputNumber>
         </div>
         <div class="farm-actions" :class="{ 'is-selecting': selecting }">
           <NButton :type="selecting ? 'default' : 'primary'" :secondary="!selecting" :disabled="selectionBusy || !currentAccountRunning || !loaded || !!error" @click="selecting ? exitSelecting() : enterSelecting()">
@@ -1137,6 +1163,23 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.farm-auto-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.farm-auto-refresh__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .farm-view-switch {

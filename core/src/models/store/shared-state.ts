@@ -1,4 +1,4 @@
-import type { AccountConfig, AutoCodeRefreshConfig, AutomationConfig, BagSeedFallbackStrategy, FertilizerLandType, FertilizerMode, GlobalConfig, IntervalConfig, LoginSettings, OfflineReminder, PlantingStrategy, QuietHoursConfig } from '../../types/config';
+import type { AccountConfig, AutoCodeRefreshConfig, AutomationConfig, BagSeedFallbackStrategy, CapitalModeConfig, FertilizerLandType, FertilizerMode, GlobalConfig, IntervalConfig, LoginSettings, OfflineReminder, PlantingStrategy, QuietHoursConfig } from '../../types/config';
 export {};
 
 const { DEFAULT_TIME_ZONE, normalizeTimeZone, resolveClientVersion } = require('../../config/config');
@@ -57,6 +57,23 @@ const DEFAULT_LOGIN_SETTINGS: LoginSettings = {
     napCatSignature: '',
 };
 
+const DEFAULT_CAPITAL_MODE: CapitalModeConfig = { enabled: false, dogId: 0, leadSeconds: 10 };
+
+/** 宠物资本模式归一化：leadSeconds 钳制 5~300，dogId 拒绝 Infinity（1e400）。 */
+function normalizeCapitalMode(value: unknown, fallback: CapitalModeConfig = DEFAULT_CAPITAL_MODE): CapitalModeConfig {
+    const input = (value && typeof value === 'object') ? value as Record<string, any> : {};
+    const base = (fallback && typeof fallback === 'object') ? fallback : DEFAULT_CAPITAL_MODE;
+    const toFiniteInt = (v: unknown, d: number, min: number): number => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.max(min, Math.trunc(n)) : d;
+    };
+    return {
+        enabled: input.enabled !== undefined ? input.enabled === true : base.enabled === true,
+        dogId: toFiniteInt(input.dogId ?? input.selectedDogId, base.dogId, 0),
+        leadSeconds: Math.max(5, Math.min(300, toFiniteInt(input.leadSeconds ?? input.secondsBeforeMature, base.leadSeconds, 10))),
+    };
+}
+
 const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
     automation: {
         ...RANCH_AUTOMATION_DEFAULTS,
@@ -97,6 +114,7 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
     },
     plantingStrategy: 'max_exp',
     preferredSeedId: 0,
+    capitalMode: { ...DEFAULT_CAPITAL_MODE },
     autoCodeRefresh: {
         enabled: false,
         intervalMinutes: 60,
@@ -147,6 +165,7 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
     bagSeedMultiLandReservationEnabled: false,
     bagSeedLandTypes: {},
     bagSeedFallbackStrategy: 'level',
+    prioritize2x2Crops: true,
     autoAcceptFriendMinLevel: 0,
     autoAcceptRequireOwnLevel: false,
     autoAcceptHarvestStealEnabled: true,
@@ -352,6 +371,7 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
             ? String(base.plantingStrategy) as PlantingStrategy
             : DEFAULT_ACCOUNT_CONFIG.plantingStrategy,
         preferredSeedId: Math.max(0, Number.parseInt(String(base.preferredSeedId), 10) || 0),
+        capitalMode: normalizeCapitalMode(base.capitalMode),
         plantBlacklist: rawPlantBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0),
         stealDelaySeconds: Math.max(0, Math.min(300, Number(base.stealDelaySeconds) || 0)),
         plantOrderRandom: !!(base.plantOrderRandom),
@@ -370,6 +390,9 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
             : DEFAULT_ACCOUNT_CONFIG.bagSeedMultiLandReservationEnabled,
         bagSeedLandTypes: normalizeBagSeedLandTypes(base.bagSeedLandTypes),
         bagSeedFallbackStrategy: normalizeBagSeedFallbackStrategy(base.bagSeedFallbackStrategy),
+        prioritize2x2Crops: base.prioritize2x2Crops !== undefined
+            ? !!base.prioritize2x2Crops
+            : DEFAULT_ACCOUNT_CONFIG.prioritize2x2Crops,
         autoAcceptFriendMinLevel: normalizeAutoAcceptFriendMinLevel(base.autoAcceptFriendMinLevel, DEFAULT_ACCOUNT_CONFIG.autoAcceptFriendMinLevel),
         autoAcceptRequireOwnLevel: !!base.autoAcceptRequireOwnLevel,
         autoAcceptHarvestStealEnabled: base.autoAcceptHarvestStealEnabled !== undefined
@@ -419,6 +442,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
 
     if (src.autoCodeRefresh && typeof src.autoCodeRefresh === 'object') {
         cfg.autoCodeRefresh = normalizeAutoCodeRefresh(src.autoCodeRefresh);
+    }
+
+    if (src.capitalMode && typeof src.capitalMode === 'object') {
+        cfg.capitalMode = normalizeCapitalMode(src.capitalMode, cfg.capitalMode);
     }
 
     if (src.intervals && typeof src.intervals === 'object') {
@@ -523,6 +550,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
 
     if (src.bagSeedFallbackStrategy !== undefined && src.bagSeedFallbackStrategy !== null) {
         cfg.bagSeedFallbackStrategy = normalizeBagSeedFallbackStrategy(src.bagSeedFallbackStrategy, cfg.bagSeedFallbackStrategy);
+    }
+
+    if (src.prioritize2x2Crops !== undefined && src.prioritize2x2Crops !== null) {
+        cfg.prioritize2x2Crops = !!src.prioritize2x2Crops;
     }
 
     if (src.autoAcceptFriendMinLevel !== undefined && src.autoAcceptFriendMinLevel !== null) {
@@ -713,6 +744,7 @@ module.exports = {
     normalizeKnownFriendGidSyncCooldownSec,
     normalizeFriendsListCacheTtlSec,
     normalizeEmailClaimHour,
+    normalizeCapitalMode,
     normalizeBagSeedPriority,
     normalizeBagSeedLandTypes,
     normalizeBagSeedFallbackStrategy,

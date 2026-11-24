@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useResizeObserver } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, provide, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -22,12 +22,29 @@ const scrollEl = ref<HTMLElement | null>(null)
 const pageTabsTarget = ref<HTMLElement | null>(null)
 provide('page-tabs-target', pageTabsTarget)
 
+/** 上次写入的滚动条宽度，用于跳过无意义的重复写入。 */
+let lastScrollbarWidth = -1
+/** 延迟写入 CSS 变量的帧句柄。 */
+let scrollbarFrame = 0
+
 function measureScrollbar() {
   const el = scrollEl.value
   if (!el)
     return
   // 页头右边缘与滚动区对齐：经典滚动条占位时让出它的宽度，悬浮滚动条（手机）为 0。
-  el.parentElement?.style.setProperty('--scrollbar-w', `${Math.max(0, el.offsetWidth - el.clientWidth)}px`)
+  const width = Math.max(0, el.offsetWidth - el.clientWidth)
+  // 值没变就别动 DOM：写同样的 margin 仍可能让浏览器重新排版，
+  // 在 ResizeObserver 回调里就形成 "loop completed with undelivered notifications"。
+  if (width === lastScrollbarWidth)
+    return
+  lastScrollbarWidth = width
+  // 改父元素 margin 会影响滚动区宽度，进而再次触发观察回调；
+  // 放到下一帧执行，避开同一帧内的布局通知循环。
+  window.cancelAnimationFrame(scrollbarFrame)
+  scrollbarFrame = window.requestAnimationFrame(() => {
+    scrollbarFrame = 0
+    el.parentElement?.style.setProperty('--scrollbar-w', `${width}px`)
+  })
 }
 
 function onPageScroll(event: Event) {
@@ -41,6 +58,13 @@ watch(() => route.fullPath, async () => {
   measureScrollbar()
 }, { immediate: true })
 useResizeObserver(scrollEl, measureScrollbar)
+
+onBeforeUnmount(() => {
+  // 布局销毁后别让排队的 rAF 回调再去操作已卸载的 DOM。
+  if (scrollbarFrame)
+    window.cancelAnimationFrame(scrollbarFrame)
+  scrollbarFrame = 0
+})
 </script>
 
 <template>

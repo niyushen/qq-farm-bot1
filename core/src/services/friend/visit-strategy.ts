@@ -28,6 +28,7 @@ const {
 const { getCareerInfoOrNull } = require('../career');
 const { recordOperation } = require('../stats');
 const { sellAllFruits } = require('../warehouse');
+const { observeFriendLands } = require('./maturity-plan');
 
 // 黄金虫道具与社交类型（与源码 qq-farm-bot 对齐）
 export const GOLDEN_BUG_ITEM_ID = 301101;
@@ -915,6 +916,9 @@ export async function visitFriend(
         plantBlacklist,
         ...getStealFruitFilter(accountId),
     });
+
+    // 成熟计划精确校准：地块 phases 里的成熟墙钟比摘要 ripe_time_sec 准，覆盖写入（老版本逻辑移植）。
+    observeFriendLands(gid, lands, { name });
 
     // 执行操作
     const actions: string[] = [];

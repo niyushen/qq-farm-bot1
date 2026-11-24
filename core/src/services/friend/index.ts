@@ -9,6 +9,15 @@ export {
 } from './gid-manager';
 
 export {
+    claimDueFriends,
+    dropFriendMaturityPlans,
+    getNextStealDelayMs,
+    observeFriendLands,
+    observeFriendSummary,
+    resetFriendMaturityPlans,
+} from './maturity-plan';
+
+export {
     getFriendDogState,
     getFriendPetCacheStats,
 } from './pet-cache';
@@ -27,6 +36,7 @@ export {
     isHelpExpLimitReached,
     onFriendApplicationReceived,
     refreshFriendCheckLoop,
+    runScheduledStealCheck,
     startFriendCheckLoop,
     stopFriendCheckLoop,
 } from './scheduler';

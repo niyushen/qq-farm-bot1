@@ -127,11 +127,32 @@ const initialState: InitialState = {
     goldBean: null,
 };
 
+/**
+ * 本次运行基线：每次登录/重启时重新记录，不做持久化恢复。
+ * 与 initialState（当日基线，同日重启恢复）互不影响，供资产卡片「本次运行」增量使用。
+ * 资产卡没有金豆的「本次运行」增量，这里不含 goldBean。
+ */
+interface RunInitialState {
+    gold: number | null;
+    exp: number | null;
+    coupon: number | null;
+}
+
+const runInitial: RunInitialState = {
+    gold: null,
+    exp: null,
+    coupon: null,
+};
+
 interface SessionData {
     goldGained: number;
     expGained: number;
     couponGained: number;
     goldBeanGained: number;
+    /** 本次运行增量：重启/重新登录后归零重新累计。 */
+    runGoldGained: number;
+    runExpGained: number;
+    runCouponGained: number;
     lastExpGain: number;
     lastGoldGain: number;
     lastExpTime?: number;
@@ -142,6 +163,9 @@ const session: SessionData = {
     expGained: 0,
     couponGained: 0,
     goldBeanGained: 0,
+    runGoldGained: 0,
+    runExpGained: 0,
+    runCouponGained: 0,
     lastExpGain: 0,
     lastGoldGain: 0,
 };
@@ -290,6 +314,10 @@ function initStats(gold: number, exp: number, coupon: number = 0, goldBean: numb
     initialState.exp = e;
     initialState.coupon = c;
     initialState.goldBean = b;
+    // 本次运行基线：登录/重启时从当前余额重新起算，不随持久化恢复。
+    runInitial.gold = g;
+    runInitial.exp = e;
+    runInitial.coupon = c;
     Object.keys(sessionAssets).forEach((key: string) => { delete sessionAssets[key]; });
 }
 
@@ -410,6 +438,10 @@ function recomputeSessionTotals(currentGold: number, currentExp: number, current
     session.expGained = currentExp - (initialState.exp as number);
     session.couponGained = currentCoupon - (initialState.coupon as number);
     session.goldBeanGained = currentGoldBean - (initialState.goldBean as number);
+    // 本次运行增量：独立于当日增量，重启/重新登录后从新基线重新累计。
+    session.runGoldGained = currentGold - (runInitial.gold ?? currentGold);
+    session.runExpGained = currentExp - (runInitial.exp ?? currentExp);
+    session.runCouponGained = currentCoupon - (runInitial.coupon ?? currentCoupon);
 }
 
 function getStats(statusData: any, userState: any, connected: boolean, limits: any): any {
@@ -457,6 +489,10 @@ function getStats(statusData: any, userState: any, connected: boolean, limits: a
         sessionGoldGained: session.goldGained,
         sessionCouponGained: session.couponGained,
         sessionGoldBeanGained: session.goldBeanGained,
+        // 本次运行增量：与上面的当日净值并存，语义是「本次进程启动以来」。
+        runExpGained: session.runExpGained,
+        runGoldGained: session.runGoldGained,
+        runCouponGained: session.runCouponGained,
         todayExpGained: lastDailyGains.exp,
         todayGoldGained: lastDailyGains.gold,
         // 今日收入：只累加正向增加，忽略升级/购买等花费（与个人页、排行榜口径一致）

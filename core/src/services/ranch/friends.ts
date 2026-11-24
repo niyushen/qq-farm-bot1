@@ -7,6 +7,14 @@ const { error, positiveId, positiveCount, quantity, itemDto, sumItems } = requir
 const { animalDto, ranchCareer } = require('./state');
 const reservations = require('./operation-state');
 const { recordOperation } = require('../stats');
+/**
+ * 牧场概览「今日统计」的动作计数。注意 steal / stroke / putMosquito / cleanFriend
+ * 在 operateCore() 里被短路到本文件，不会走 operate() 的统一 recordAction，
+ * 必须在这里补记，否则今日偷取 / 清理 / 放蚊子永远显示 0。
+ */
+function recordRanchAction(action: string): void {
+    try { require('./stats').recordAction(action); } catch {}
+}
 const { getAmbientSendContext, runWithSendContext } = require('./context');
 const { getServerTimeSec, logWarn } = require('../../utils/utils');
 
@@ -219,6 +227,7 @@ async function commitInteraction(plan: any, ranch?: any): Promise<any> {
         if (plan.action === 'putMosquito' && ranch) ranch.hazards = reply.hazards;
         const items = sumItems(rewards);
         if (plan.action === 'cleanFriend' && completed > 0) recordOperation('helpFarming', completed, 'ranch');
+        if (completed > 0) recordRanchAction(plan.action);
         return { action: plan.action, status: completed ? 'confirmed' : 'skipped', snapshot: null, costs: [], rewards: items, completed,
             remainingTimes: plan.action === 'cleanFriend' ? undefined : remaining, triggered: reply.triggered === true, refreshRequired: true,
             notice: `${plan.label}${completed ? '完成' : '当前已无可清理项目'}${reply.triggered ? '，触发巨大变异' : ''}${items.length ? `，获得 ${items.map((item: any) => `${item.name} ×${item.count}`).join('、')}` : ''}` };
@@ -270,7 +279,10 @@ async function commitSteal(host: string, ranches: any[], plan: any): Promise<any
         }
         const completed = reply.op_results.length;
         const rewards = sumItems(reply.op_results.flatMap((row: any) => row.rewards));
-        if (completed > 0) recordOperation('steal', completed, 'ranch');
+        if (completed > 0) {
+            recordOperation('steal', completed, 'ranch');
+            recordRanchAction('steal');
+        }
         const notice = rewards.length ? `获得 ${rewards.map((item: any) => `${item.name} ×${item.count}`).join('、')}` : '当前没有可偷取的产物';
         return { action: 'steal', status: completed ? 'confirmed' : 'skipped', snapshot: null, costs: [],
             rewards, completed, refreshRequired: true,

@@ -17,6 +17,8 @@ const API_CALL_TIMEOUTS_MS: Record<string, number> = {
     scanWeatherFriends: 60000,
     getWeatherFriends: 30000,
     clearRanchIllustratedNew: 40000,
+    // 主动加好友逐条 Enter→ApplyFriend、每条间隔 2 秒，单批可能跑数分钟。
+    applyFriendInvites: 10 * 60 * 1000,
 };
 
 interface WorkerManagerOptions {

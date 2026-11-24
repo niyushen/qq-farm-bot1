@@ -117,6 +117,11 @@ function mountCommerceRoutes(app: Application, ctx: AdminContext): void {
         ctx.provider.getMysteryShop(accountId)
     )));
 
+    // 按账号读取本地交易记录（手动 + 自动购买），供商城来访横幅判断本轮是否已买。
+    app.get('/api/mystery-shop/history', withAccount((accountId: string) => (
+        ctx.provider.getMysteryShopHistory(accountId)
+    )));
+
     app.post('/api/mystery-shop/purchase', withAccount((accountId: string, req: Request) => (
         ctx.provider.purchaseMysteryOffer(accountId, req.body?.npcId)
     )));

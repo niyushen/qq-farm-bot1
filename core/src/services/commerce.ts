@@ -4,6 +4,7 @@ const { getItemById, getItemImageById, getShopGoodsById } = require('../config/g
 const { getServerTimeSec, toNum } = require('../utils/utils');
 const mallService = require('./mall');
 const mysteryShopService = require('./mystery-shop');
+const { appendMysteryShopHistory } = require('./mystery-shop-history');
 
 let purchaseTail: Promise<void> = Promise.resolve();
 
@@ -353,6 +354,27 @@ async function purchaseMysteryOffer(npcIdInput: unknown): Promise<any> {
         const shop = await getMysteryShop();
         if (shop.active && shop.npc?.id === npcId && shop.npc.reward.count >= offer.reward.count) {
             throw businessError('MYSTERY_PURCHASE_NOT_CONFIRMED', 'Mystery shop purchase was not confirmed');
+        }
+        // 购买成功后按账号落一条交易记录，供商城来访横幅判断本轮是否已买。
+        const accountId = String(process.env.FARM_ACCOUNT_ID || '');
+        if (accountId) {
+            try {
+                appendMysteryShopHistory(accountId, {
+                    npcId,
+                    itemId: offer.reward.id,
+                    itemName: offer.reward.name,
+                    itemImage: offer.reward.image,
+                    itemCount: offer.reward.count,
+                    currencyId: offer.price.id,
+                    currencyName: offer.price.name,
+                    price: offer.price.count,
+                    originalPrice: offer.originalPrice,
+                    discount: offer.discountPercent,
+                }, { reward: { itemId: offer.reward.id, count: offer.reward.count } }, 'manual');
+            }
+            catch {
+                // 历史写入失败不影响购买结果
+            }
         }
         return {
             purchase: {
