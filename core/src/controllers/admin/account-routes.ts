@@ -215,6 +215,78 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
+    // API: 续期全部微信账号授权。滚动刷新 refreshtoken/loginBuffer，不申请游戏 Code、
+    // 不重启 Worker，因此不会影响 session-host 中已在线的游戏会话。
+    // 返回逐账号结果，供设置页「续期全部微信授权」按钮汇总提示。
+    app.post('/api/accounts/refresh-wx-credentials', async (req: Request, res: Response) => {
+        try {
+            const { keepWxCredentialAlive } = require('../../services/wx-credentials');
+            const data = ctx.provider.getAccounts();
+            let accounts: any[] = Array.isArray(data?.accounts) ? data.accounts.slice() : [];
+            const user = (req as AuthenticatedRequest).currentUser || null;
+            // 普通用户只能续期自己的账号；管理员可续期全部。
+            if (user && !isSuperAdminRole(user.role) && !store.getUsersSeeAllAccounts()) {
+                accounts = accounts.filter((account: any) => isAccountOwner(account, user));
+            }
+            const wxAccounts = accounts.filter((account: any) => String(account.platform || '') === 'wx');
+            const targetAccounts = wxAccounts.filter((account: any) =>
+                account && account.wxid && account.refreshtoken && account.loginBuffer);
+            if (targetAccounts.length === 0) {
+                return res.json({
+                    ok: false,
+                    error: wxAccounts.length === 0 ? '当前没有微信账号' : '没有可续期的微信账号，请重新扫码登录',
+                    data: { total: 0, success: 0, failed: 0, skipped: wxAccounts.length, results: [] },
+                });
+            }
+
+            const results: any[] = [];
+            for (const account of targetAccounts) {
+                try {
+                    const result = await keepWxCredentialAlive(account);
+                    // 手动续期成功也应清零连续 -109 计数，避免历史失败误触发 need_rescan。
+                    if (result.Success) wxCredentialGuard.clearSuspiciousCredentialFailures(String(account.id));
+                    results.push({
+                        accountId: String(account.id),
+                        name: account.name || String(account.id),
+                        ok: !!result.Success,
+                        error: result.Success ? '' : (result.Message || '续期失败'),
+                    });
+                } catch (error: any) {
+                    results.push({
+                        accountId: String(account.id),
+                        name: account.name || String(account.id),
+                        ok: false,
+                        error: error?.message || '续期失败',
+                    });
+                }
+            }
+
+            const success = results.filter(item => item.ok).length;
+            const failed = results.length - success;
+            if (ctx.provider.addAccountLog) {
+                const detail = results.map(item => `${item.name}${item.ok ? '✓' : '✗'}`).join('、');
+                ctx.provider.addAccountLog(
+                    failed === 0 ? 'refresh_wx_credentials' : 'refresh_wx_credentials_failed',
+                    `续期微信授权：成功 ${success} 个，失败 ${failed} 个（${detail}）`,
+                    '', '',
+                );
+            }
+            return res.json({
+                ok: failed === 0,
+                ...(failed > 0 ? { error: `${failed} 个账号续期失败` } : {}),
+                data: {
+                    total: results.length,
+                    success,
+                    failed,
+                    skipped: wxAccounts.length - targetAccounts.length,
+                    results,
+                },
+            });
+        } catch (error: any) {
+            handleApiError(res, error);
+        }
+    });
+
     app.delete('/api/accounts/:id', async (req: Request, res: Response) => {
         try {
             const resolvedId = resolveAccId(ctx, req.params.id, (req as AuthenticatedRequest).currentUser || null) || String(req.params.id || '');

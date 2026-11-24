@@ -175,7 +175,7 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
-  /** 续期全部微信账号授权。当前 fork 后端可能未提供该接口，失败时返回明确错误对象供 UI 提示。 */
+  /** 续期全部微信账号授权。后端提供 /api/accounts/refresh-wx-credentials；失败时返回明确错误对象供 UI 提示。 */
   async function refreshWxCodes() {
     try {
       const res = await api.post('/api/accounts/refresh-wx-credentials')
