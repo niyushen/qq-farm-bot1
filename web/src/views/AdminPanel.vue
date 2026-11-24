@@ -3,10 +3,10 @@ import type { LoginLog, Redemption } from '@/stores/user'
 import { onMounted, ref, watch } from 'vue'
 import AdminAnnouncementPanel from '@/components/admin/AdminAnnouncementPanel.vue'
 import AdminCardPanel from '@/components/admin/AdminCardPanel.vue'
-import AdminInvitePanel from '@/components/admin/AdminInvitePanel.vue'
-import AdminMailPanel from '@/components/admin/AdminMailPanel.vue'
 import AdminGlobalSettings from '@/components/admin/AdminGlobalSettings.vue'
+import AdminInvitePanel from '@/components/admin/AdminInvitePanel.vue'
 import AdminMailerCard from '@/components/admin/AdminMailerCard.vue'
+import AdminMailPanel from '@/components/admin/AdminMailPanel.vue'
 import AdminUserPanel from '@/components/admin/AdminUserPanel.vue'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
@@ -124,7 +124,7 @@ onMounted(() => {
 <template>
   <div class="space-y-4">
     <!-- 头部 -->
-    <div class="farm-card flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
+    <div class="flex flex-wrap items-center justify-between gap-3 farm-card rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
       <div>
         <h1 class="flex items-center gap-2 text-lg text-gray-900 font-bold dark:text-gray-100">
           <span class="i-carbon-user-admin text-lg" style="color: var(--theme-primary);" />
@@ -138,7 +138,7 @@ onMounted(() => {
       <button
         v-for="item in tabs"
         :key="item.key"
-        class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all"
+        class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-all font-medium"
         :class="tab === item.key
           ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-100'
           : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
@@ -154,7 +154,7 @@ onMounted(() => {
     <AdminInvitePanel v-else-if="tab === 'invite'" />
 
     <!-- 核销流水 -->
-    <div v-else-if="tab === 'redemptions'" class="farm-card overflow-hidden rounded-2xl bg-white shadow-md dark:bg-gray-800">
+    <div v-else-if="tab === 'redemptions'" class="overflow-hidden farm-card rounded-2xl bg-white shadow-md dark:bg-gray-800">
       <div class="custom-scrollbar max-h-[32rem] overflow-auto">
         <table class="w-full text-left text-sm">
           <thead class="sticky top-0 text-xs text-gray-500 dark:text-gray-400" style="background: var(--surface-2, rgba(127, 127, 127, 0.08));">
@@ -221,7 +221,7 @@ onMounted(() => {
     </div>
 
     <!-- 登录日志 -->
-    <div v-else-if="tab === 'logs'" class="farm-card overflow-hidden rounded-2xl bg-white shadow-md dark:bg-gray-800">
+    <div v-else-if="tab === 'logs'" class="overflow-hidden farm-card rounded-2xl bg-white shadow-md dark:bg-gray-800">
       <div class="flex items-center justify-between p-3">
         <span class="text-sm text-gray-600 dark:text-gray-300">最近 {{ logs.length }} 条</span>
         <button

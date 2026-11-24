@@ -21,10 +21,10 @@ import { useAccountStore } from '@/stores/account'
 import { useAppUpdateStore } from '@/stores/app-update'
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
-import { formatExpiresAt, formatRemaining, useUserStore } from '@/stores/user'
 import { useToastStore } from '@/stores/toast'
-import AdminPanel from '@/views/AdminPanel.vue'
+import { formatExpiresAt, formatRemaining, useUserStore } from '@/stores/user'
 import { parseHourOfDay } from '@/utils/hour-of-day'
+import AdminPanel from '@/views/AdminPanel.vue'
 
 const fertilizerLandTypeOptions = [
   { label: '蓝晶土地', value: 'blue-crystal' },
@@ -1129,6 +1129,8 @@ interface SystemUpdateState {
   commitSubject: string
   startupCommit: string
   needsApply: boolean
+  updateHint: string
+  hostMaintenance: string
   upstream: string
   remote: string
   remoteBranch: string
@@ -1146,6 +1148,7 @@ interface SystemUpdateState {
   job: PanelUpdateJob | null
   releases: RollbackReleaseItem[]
   releasesSummary: ReleasesSummary
+  keepBackups?: boolean
 }
 
 const emptyReleasesSummary: ReleasesSummary = {
@@ -1227,6 +1230,8 @@ async function handleCheckSystemUpdates() {
       scheduleUpdatePollIfBusy()
       if (data.data.behindCount > 0)
         toast.info(`发现 ${data.data.behindCount} 个可拉取更新`)
+      else if (data.data.needsApply)
+        toast.info(data.data.updateHint)
       else
         toast.success('当前分支已是最新')
     }
@@ -1275,7 +1280,10 @@ async function handleApplySystemUpdate(pullFirst: boolean) {
     if (data?.ok && data.data?.status) {
       updateStatus.value = data.data.status
       scheduleUpdatePollIfBusy()
-      toast.info('已在后台开始更新，构建期间可继续操作')
+      if (data.data.job)
+        toast.info('已开始更新，准备新版期间可以继续使用面板')
+      else
+        toast.success('网页端和服务端均无需更新')
     }
     else {
       updateActionError.value = getApiErrorMessage(data, '启动在线更新失败')
@@ -1304,6 +1312,8 @@ const updateHeadline = computed<{ label: string, tone: 'busy' | 'pending' | 'war
     return { label: '待应用', tone: 'pending' }
   if (status.dirtyFiles.length || status.aheadCount > 0)
     return { label: '本地有改动', tone: 'warn' }
+  if (status.hostMaintenance)
+    return { label: '游戏连接服务', tone: 'muted' }
   if (!status.lastCheckedAt)
     return { label: '未检查', tone: 'muted' }
   return { label: '已是最新', tone: 'ok' }
@@ -1373,9 +1383,9 @@ onBeforeUnmount(() => {
 
           <AccountFeatureSettings
             v-else
-            group="farm"
             v-model:strategy="localStrategySettings"
             v-model:automation="localAutomationSettings"
+            group="farm"
             :current-account-name="currentAccountName"
             :current-account-id="currentAccountId"
             :loading="settingsLoading"
@@ -1402,9 +1412,9 @@ onBeforeUnmount(() => {
 
           <AccountFeatureSettings
             v-else
-            group="ranch"
             v-model:strategy="localStrategySettings"
             v-model:automation="localAutomationSettings"
+            group="ranch"
             :current-account-name="currentAccountName"
             :current-account-id="currentAccountId"
             :loading="settingsLoading"
@@ -1431,9 +1441,9 @@ onBeforeUnmount(() => {
 
           <AccountFeatureSettings
             v-else
-            group="events"
             v-model:strategy="localStrategySettings"
             v-model:automation="localAutomationSettings"
+            group="events"
             :current-account-name="currentAccountName"
             :current-account-id="currentAccountId"
             :loading="settingsLoading"
@@ -1959,16 +1969,16 @@ onBeforeUnmount(() => {
               </BaseButton>
             </div>
 
-            <div class="rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/20">
+            <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/20">
               <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div class="min-w-0 space-y-2">
                   <BaseSwitch v-model="localAutoCodeRefresh.enabled" label="启用定时刷新与自动重登" />
-                  <p class="max-w-3xl text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+                  <p class="max-w-3xl text-xs text-gray-500 leading-relaxed dark:text-gray-400">
                     <template v-if="!currentAccountHasCredential">
-                      <span class="font-semibold text-amber-700 dark:text-amber-300">当前账号缺少登录凭据（需重新扫码添加）。</span>
+                      <span class="text-amber-700 font-semibold dark:text-amber-300">当前账号缺少登录凭据（需重新扫码添加）。</span>
                     </template>
                     <template v-else>
-                      <span class="font-semibold text-amber-700 dark:text-amber-300">仅带内置登录凭据的微信扫码账号可用。</span>
+                      <span class="text-amber-700 font-semibold dark:text-amber-300">仅带内置登录凭据的微信扫码账号可用。</span>
                     </template>
                     启用后会按间隔获取新 Code 并重启账号；账号被踢、断线或 Code 失效时，也会按阶梯延迟自动重登。
                     关闭不会停用启动时刷新、Code 失效时的即时恢复和微信凭证保活。
@@ -2022,21 +2032,27 @@ onBeforeUnmount(() => {
                 {{ userStore.isExpired ? '已过期' : '有效' }}
               </span>
             </div>
-            <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div class="grid grid-cols-1 mt-4 gap-3 sm:grid-cols-3">
               <div class="rounded-xl bg-gray-50/80 p-3 dark:bg-gray-900/40">
-                <div class="text-xs text-gray-500">到期时间</div>
+                <div class="text-xs text-gray-500">
+                  到期时间
+                </div>
                 <div class="mt-1 text-sm text-gray-900 font-semibold dark:text-gray-100">
                   {{ formatExpiresAt(userStore.subscription) }}
                 </div>
               </div>
               <div class="rounded-xl bg-gray-50/80 p-3 dark:bg-gray-900/40">
-                <div class="text-xs text-gray-500">剩余时长</div>
+                <div class="text-xs text-gray-500">
+                  剩余时长
+                </div>
                 <div class="mt-1 text-sm text-gray-900 font-semibold dark:text-gray-100">
                   {{ myRemainingText }}
                 </div>
               </div>
               <div class="rounded-xl bg-gray-50/80 p-3 dark:bg-gray-900/40">
-                <div class="text-xs text-gray-500">农场账号额度</div>
+                <div class="text-xs text-gray-500">
+                  农场账号额度
+                </div>
                 <div class="mt-1 text-sm text-gray-900 font-semibold dark:text-gray-100">
                   {{ myUnlimited
                     ? `${myAccountUsed} / 不限`
@@ -2053,7 +2069,9 @@ onBeforeUnmount(() => {
                 <span class="i-carbon-password text-xl" />
               </div>
               <div>
-                <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">修改密码</h4>
+                <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                  修改密码
+                </h4>
                 <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                   修改当前登录账号（{{ userStore.username }}）的登录密码
                 </p>
@@ -2118,9 +2136,11 @@ onBeforeUnmount(() => {
                   <div class="truncate text-sm text-gray-900 font-medium dark:text-gray-100">
                     {{ acc.name || acc.nick || `账号 ${acc.id}` }}
                   </div>
-                  <div class="text-[11px] text-gray-400">ID {{ acc.id }} · {{ acc.platform || '-' }}</div>
+                  <div class="text-[11px] text-gray-400">
+                    ID {{ acc.id }} · {{ acc.platform || '-' }}
+                  </div>
                 </div>
-                <span class="text-[var(--theme-primary)] text-xs">配置 →</span>
+                <span class="text-xs text-[var(--theme-primary)]">配置 →</span>
               </div>
             </div>
           </div>
@@ -2132,8 +2152,12 @@ onBeforeUnmount(() => {
               <span class="i-carbon-receipt text-base" />
               我的核销记录
             </h4>
-            <div v-if="redemptionsLoading" class="py-5 text-center text-sm text-gray-400">加载中…</div>
-            <div v-else-if="myRedemptions.length === 0" class="py-5 text-center text-sm text-gray-400">暂无记录</div>
+            <div v-if="redemptionsLoading" class="py-5 text-center text-sm text-gray-400">
+              加载中…
+            </div>
+            <div v-else-if="myRedemptions.length === 0" class="py-5 text-center text-sm text-gray-400">
+              暂无记录
+            </div>
             <div v-else class="space-y-2">
               <div
                 v-for="item in myRedemptions"

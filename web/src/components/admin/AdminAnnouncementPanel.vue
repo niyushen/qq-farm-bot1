@@ -101,7 +101,7 @@ onMounted(load)
         rows="8"
         maxlength="4000"
         placeholder="在这里填写公告内容，支持换行。"
-        class="w-full resize-y rounded-xl border px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-emerald-500"
+        class="w-full resize-y border rounded-xl px-3 py-2.5 text-sm leading-relaxed outline-none transition focus:border-emerald-500"
         style="border-color: var(--ui-border); background: var(--ui-surface-strong, #fff); color: var(--ui-ink);"
       />
 

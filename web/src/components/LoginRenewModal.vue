@@ -190,7 +190,7 @@ watch(() => props.defaultUsername, (value) => {
             <label class="renew-field">
               <span class="renew-label">账号</span>
               <span class="renew-input">
-                <span class="i-carbon-user renew-icon" />
+                <span class="renew-icon i-carbon-user" />
                 <input
                   v-model="username"
                   type="text"
@@ -204,7 +204,7 @@ watch(() => props.defaultUsername, (value) => {
             <label class="renew-field">
               <span class="renew-label">卡密</span>
               <span class="renew-input font-mono">
-                <span class="i-carbon-ticket renew-icon" />
+                <span class="renew-icon i-carbon-ticket" />
                 <input
                   v-model="cardCode"
                   type="text"
@@ -240,7 +240,7 @@ watch(() => props.defaultUsername, (value) => {
                 关闭
               </button>
               <button type="submit" class="renew-submit" :disabled="!canSubmit">
-                <span v-if="submitting" class="i-carbon-circle-dash mr-1 align-middle animate-spin" />
+                <span v-if="submitting" class="i-carbon-circle-dash mr-1 animate-spin align-middle" />
                 {{ submitting ? '核销中…' : '立即核销' }}
               </button>
             </div>

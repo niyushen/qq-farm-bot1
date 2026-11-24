@@ -117,7 +117,7 @@ onMounted(loadConfig)
 </script>
 
 <template>
-  <div class="farm-card overflow-hidden rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
+  <div class="overflow-hidden farm-card rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
     <div class="mb-1 flex flex-wrap items-center gap-2">
       <span class="i-carbon-mail-all text-lg" style="color: var(--theme-primary);" />
       <h2 class="text-base text-gray-900 font-semibold dark:text-gray-100">

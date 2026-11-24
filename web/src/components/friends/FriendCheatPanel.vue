@@ -50,7 +50,9 @@ async function load() {
   }
 }
 
-watch(currentAccountId, () => { void load() }, { immediate: true })
+watch(currentAccountId, () => {
+  void load()
+}, { immediate: true })
 
 const visitors = computed<any[]>(() => analysis.value?.visitors || [])
 
@@ -159,7 +161,7 @@ function formatTime(ts: number) {
           分析窗口
         </div>
         <div class="mt-1 text-2xl font-bold">
-          {{ analysis?.windowHours ?? 72 }}<span class="ml-1 text-sm font-normal text-gray-400">小时</span>
+          {{ analysis?.windowHours ?? 72 }}<span class="ml-1 text-sm text-gray-400 font-normal">小时</span>
         </div>
       </div>
     </div>
@@ -222,7 +224,7 @@ function formatTime(ts: number) {
               <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
                 <div class="h-full rounded-full transition-all" :class="scoreClass(v)" :style="{ width: `${v.score}%` }" />
               </div>
-              <span class="w-10 text-right text-sm font-bold tabular-nums">{{ v.score }}</span>
+              <span class="w-10 text-right text-sm tabular-nums font-bold">{{ v.score }}</span>
             </div>
             <div class="mt-2 flex flex-wrap gap-1.5">
               <span

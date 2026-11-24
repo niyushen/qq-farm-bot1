@@ -3,13 +3,13 @@ import { useResizeObserver } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, provide, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import AnnouncementPopup from '@/components/AnnouncementPopup.vue'
 import MobileBottomNav from '@/components/MobileBottomNav.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import { SPACE_TRANSITION_STYLE, spaceTransition } from '@/components/space-transition'
 import SpaceTransition from '@/components/SpaceTransition.vue'
 import { useAppStore } from '@/stores/app'
-import AnnouncementPopup from '@/components/AnnouncementPopup.vue'
 
 const appStore = useAppStore()
 const route = useRoute()

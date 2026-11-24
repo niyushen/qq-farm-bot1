@@ -4,11 +4,8 @@ import { defineStore } from 'pinia'
 import { io } from 'socket.io-client'
 import { computed, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
+import { LOG_CACHE_LIMIT } from '@/constants/log-filters'
 import { useAccountStore } from '@/stores/account'
-import { LOG_SPACE_RANCH, resolveEntrySpace } from '@/utils/log-space'
-
-/** 每个空间在前端保留的日志条数（对应服务端每空间 100 条的可见配额） */
-const LOG_BUFFER_LIMIT = 100
 
 // Define interfaces for better type checking
 interface DailyGift {
@@ -45,10 +42,8 @@ interface DailyGiftsResponse {
 export const useStatusStore = defineStore('status', () => {
   const accountStore = useAccountStore()
   const status = ref<any>(null)
-  /** 农场空间日志（全部非牧场日志） */
-  const farmLogs = ref<any[]>([])
-  /** 牧场空间日志 */
-  const ranchLogs = ref<any[]>([])
+  /** 统一日志缓冲（上游 PR #184：农场/牧场共用一套日志视图，按模块筛选区分） */
+  const logs = ref<any[]>([])
   const dailyGifts = ref<DailyGiftsResponse | null>(null)
   const dailyGiftsLoading = ref(false)
   const dailyGiftsError = ref('')
@@ -104,10 +99,9 @@ export const useStatusStore = defineStore('status', () => {
 
   function pushRealtimeLog(entry: any) {
     const next = normalizeLogEntry(entry)
-    const target = resolveEntrySpace(next) === LOG_SPACE_RANCH ? ranchLogs : farmLogs
-    target.value.push(next)
-    if (target.value.length > LOG_BUFFER_LIMIT)
-      target.value = target.value.slice(-LOG_BUFFER_LIMIT)
+    logs.value.push(next)
+    if (logs.value.length > LOG_CACHE_LIMIT)
+      logs.value = logs.value.slice(-LOG_CACHE_LIMIT)
   }
 
   function handleRealtimeStatus(payload: any) {
@@ -130,12 +124,13 @@ export const useStatusStore = defineStore('status', () => {
   }
 
   function handleRealtimeLogsSnapshot(payload: any) {
+    // 筛选启用时实时日志已暂停，全量快照会把筛选结果覆盖回全量日志，
+    // 导致列表在「筛选结果」和「全部日志」之间来回跳。
+    if (!realtimeLogsEnabled.value)
+      return
     const body = (payload && typeof payload === 'object') ? payload : {}
-    const list = Array.isArray(body.logs) ? body.logs.map((item: any) => normalizeLogEntry(item)) : []
-    if (body.space === LOG_SPACE_RANCH)
-      ranchLogs.value = list
-    else
-      farmLogs.value = list
+    const list = Array.isArray(body.logs) ? body.logs : []
+    logs.value = list.map((item: any) => normalizeLogEntry(item))
   }
 
   function clearReconnectDelayTimer() {
@@ -314,10 +309,7 @@ export const useStatusStore = defineStore('status', () => {
       const { data } = await api.get('/api/logs', { headers, params })
       if (data.ok) {
         const list = Array.isArray(data.data) ? data.data.map((item: any) => normalizeLogEntry(item)) : []
-        if (params.space === LOG_SPACE_RANCH)
-          ranchLogs.value = list
-        else
-          farmLogs.value = list
+        logs.value = list
         error.value = ''
       }
     }
@@ -381,8 +373,7 @@ export const useStatusStore = defineStore('status', () => {
 
   return {
     status,
-    farmLogs,
-    ranchLogs,
+    logs,
     dailyGifts,
     dailyGiftsLoading,
     dailyGiftsError,

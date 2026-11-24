@@ -466,7 +466,7 @@ function getIsometricBubbleClass(targetLand: any) {
     </div>
 
     <div
-      class="land-card-name w-full shrink-0 truncate px-1 text-center text-gray-900 font-bold leading-5 dark:text-gray-100"
+      class="land-card-name w-full shrink-0 truncate px-1 text-center text-gray-900 leading-5 font-bold dark:text-gray-100"
       :class="Number(land.plantSize) > 1 ? 'text-sm' : 'text-xs'"
       :title="land.plantName"
     >
@@ -555,7 +555,7 @@ function getIsometricBubbleClass(targetLand: any) {
             <div class="text-[10px] text-gray-400">
               成熟倒计时
             </div>
-            <div class="mt-0.5 font-semibold tabular-nums">
+            <div class="mt-0.5 tabular-nums font-semibold">
               {{ land.matureInSec > 0 ? formatTime(land.matureInSec) : '—' }}
             </div>
           </div>
@@ -574,7 +574,7 @@ function getIsometricBubbleClass(targetLand: any) {
             <span class="truncate text-emerald-700 font-medium dark:text-emerald-300">
               {{ land.phaseName || '当前阶段' }}
             </span>
-            <span class="shrink-0 text-emerald-600 font-semibold tabular-nums dark:text-emerald-300">
+            <span class="shrink-0 text-emerald-600 tabular-nums font-semibold dark:text-emerald-300">
               {{ phaseProgress.percent }}%
             </span>
           </div>

@@ -350,36 +350,36 @@ async function refreshWxCredentials() {
 
         <div class="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 sm:mt-4 dark:border-gray-700 sm:pt-4">
           <div class="ml-auto flex flex-1 justify-end gap-1 sm:flex-initial sm:gap-2">
-          <BaseButton
-            variant="ghost"
-            class="group relative min-h-[36px] min-w-[36px] !p-2"
-            title="设置"
-            aria-label="设置"
-            @click.stop="emit('openSettings', acc)"
-          >
-            <span class="i-carbon-settings" />
-            <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 -translate-x-1/2 dark:bg-gray-100 dark:text-gray-900 group-hover:opacity-100">设置</span>
-          </BaseButton>
-          <BaseButton
-            variant="ghost"
-            class="group relative min-h-[36px] min-w-[36px] !p-2"
-            title="编辑"
-            aria-label="编辑"
-            @click.stop="openEditModal(acc)"
-          >
-            <span class="i-carbon-edit" />
-            <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 -translate-x-1/2 dark:bg-gray-100 dark:text-gray-900 group-hover:opacity-100">编辑</span>
-          </BaseButton>
-          <BaseButton
-            variant="ghost"
-            class="group relative min-h-[36px] min-w-[36px] text-red-500 !p-2 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300"
-            title="删除"
-            aria-label="删除"
-            @click.stop="handleDelete(acc)"
-          >
-            <span class="i-carbon-trash-can" />
-            <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 -translate-x-1/2 dark:bg-gray-100 dark:text-gray-900 group-hover:opacity-100">删除</span>
-          </BaseButton>
+            <BaseButton
+              variant="ghost"
+              class="group relative min-h-[36px] min-w-[36px] !p-2"
+              title="设置"
+              aria-label="设置"
+              @click.stop="emit('openSettings', acc)"
+            >
+              <span class="i-carbon-settings" />
+              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 -translate-x-1/2 dark:bg-gray-100 dark:text-gray-900 group-hover:opacity-100">设置</span>
+            </BaseButton>
+            <BaseButton
+              variant="ghost"
+              class="group relative min-h-[36px] min-w-[36px] !p-2"
+              title="编辑"
+              aria-label="编辑"
+              @click.stop="openEditModal(acc)"
+            >
+              <span class="i-carbon-edit" />
+              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 -translate-x-1/2 dark:bg-gray-100 dark:text-gray-900 group-hover:opacity-100">编辑</span>
+            </BaseButton>
+            <BaseButton
+              variant="ghost"
+              class="group relative min-h-[36px] min-w-[36px] text-red-500 !p-2 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300"
+              title="删除"
+              aria-label="删除"
+              @click.stop="handleDelete(acc)"
+            >
+              <span class="i-carbon-trash-can" />
+              <span class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 whitespace-nowrap rounded-md bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-150 -translate-x-1/2 dark:bg-gray-100 dark:text-gray-900 group-hover:opacity-100">删除</span>
+            </BaseButton>
           </div>
         </div>
       </div>

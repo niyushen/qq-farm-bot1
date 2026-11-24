@@ -33,7 +33,7 @@ async function close() {
 <template>
   <Teleport to="body">
     <div v-if="visible" class="fixed inset-0 z-9999 flex items-center justify-center bg-black/40 backdrop-blur-sm" @click.self="close">
-      <div class="mx-4 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
+      <div class="mx-4 max-w-md w-full rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
         <div class="mb-4 flex items-center gap-3">
           <div class="h-10 w-10 flex items-center justify-center rounded-full" style="background: var(--ui-primary);">
             <span class="i-carbon-notification text-xl text-white" />

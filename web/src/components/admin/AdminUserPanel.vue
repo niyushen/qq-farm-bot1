@@ -268,14 +268,14 @@ defineExpose({ load })
         新建用户
       </button>
       <button
-        class="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
+        class="flex items-center gap-1.5 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 transition dark:border-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
         @click="load"
       >
         <span class="i-carbon-renew" :class="{ 'animate-spin': loading }" />
         刷新
       </button>
       <button
-        class="flex items-center gap-1.5 rounded-xl border border-red-300 px-3 py-2 text-sm text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-900/20"
+        class="flex items-center gap-1.5 border border-red-300 rounded-xl px-3 py-2 text-sm text-red-600 transition dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20"
         @click="clearExpired"
       >
         <span class="i-carbon-trash-can" />
@@ -284,7 +284,7 @@ defineExpose({ load })
     </div>
 
     <!-- 用户列表 -->
-    <div class="farm-card overflow-hidden rounded-2xl bg-white shadow-md dark:bg-gray-800">
+    <div class="overflow-hidden farm-card rounded-2xl bg-white shadow-md dark:bg-gray-800">
       <!-- 桌面端：表格 -->
       <div class="custom-scrollbar hidden max-h-[28rem] overflow-auto md:block">
         <table class="w-full text-left text-sm">
@@ -397,12 +397,12 @@ defineExpose({ load })
         <div
           v-for="(user, idx) in filteredUsers"
           :key="user.username"
-          class="space-y-2 px-3 py-3"
+          class="px-3 py-3 space-y-2"
           :class="idx > 0 ? 'border-t' : ''"
           :style="idx > 0 ? 'border-color: var(--surface-border, rgba(127, 127, 127, 0.15))' : ''"
         >
           <div class="flex items-center justify-between gap-2">
-            <div class="flex min-w-0 items-center gap-1.5">
+            <div class="min-w-0 flex items-center gap-1.5">
               <span class="truncate text-gray-900 font-medium dark:text-gray-100">{{ user.username }}</span>
               <span
                 v-if="user.role !== 'user'"
@@ -464,7 +464,7 @@ defineExpose({ load })
         class="fixed inset-0 z-[9998] flex items-center justify-center bg-black/30 p-4 backdrop-blur-md"
         @click.self="closeModal"
       >
-        <div class="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-gray-800">
+        <div class="max-h-[85vh] max-w-lg w-full overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-gray-800">
           <div class="mb-4 flex items-center justify-between">
             <h3 class="text-base text-gray-900 font-semibold dark:text-gray-100">
               {{ modal === 'create' ? '新建用户' : modal === 'edit' ? `编辑用户 · ${activeUser?.username}` : modal === 'renew' ? `核销卡密 · ${activeUser?.username}` : `名下农场账号 · ${activeUser?.username}` }}
@@ -562,7 +562,7 @@ defineExpose({ load })
               <div
                 v-for="account in accountDetail.accounts"
                 :key="account.id"
-                class="rounded-xl border p-3"
+                class="border rounded-xl p-3"
                 style="border-color: var(--surface-border, rgba(127, 127, 127, 0.15));"
               >
                 <div class="flex items-center justify-between">

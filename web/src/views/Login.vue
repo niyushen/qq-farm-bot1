@@ -2,10 +2,10 @@
 import type { ApiResult } from '@/stores/user'
 import { computed, onMounted, ref } from 'vue'
 import api from '@/api'
+import LoginRenewModal from '@/components/LoginRenewModal.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
-import LoginRenewModal from '@/components/LoginRenewModal.vue'
 import { useToastStore } from '@/stores/toast'
 import { useUserStore } from '@/stores/user'
 

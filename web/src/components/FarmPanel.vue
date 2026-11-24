@@ -11,8 +11,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import CareerHarvestSteal from '@/components/CareerHarvestSteal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
-import FarmScene from '@/components/FarmScene.vue'
 import LandCard from '@/components/FarmLandCard.vue'
+import FarmScene from '@/components/FarmScene.vue'
 import LandDetailModal from '@/components/LandDetailModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -1205,7 +1205,9 @@ onUnmounted(() => {
   font-weight: var(--fw-650);
   line-height: 18px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .farm-view-switch button.is-active {

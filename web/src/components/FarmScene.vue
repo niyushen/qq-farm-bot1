@@ -22,16 +22,15 @@ const props = withDefaults(defineProps<{
   emptyText: undefined,
 })
 
-// 是否处于好友受控选地模式
-const selectionMode = computed(() => Array.isArray(props.selectionIds))
-const selectedIdSet = computed(() => new Set((props.selectionIds || []).map(String)))
-const disabledIdSet = computed(() => new Set((props.selectionDisabledIds || []).map(String)))
-
 const emit = defineEmits<{
   (e: 'fertilize', land: any): void
   (e: 'remove', land: any): void
   (e: 'select', land: any): void
 }>()
+// 是否处于好友受控选地模式
+const selectionMode = computed(() => Array.isArray(props.selectionIds))
+const selectedIdSet = computed(() => new Set((props.selectionIds || []).map(String)))
+const disabledIdSet = computed(() => new Set((props.selectionDisabledIds || []).map(String)))
 
 const farmSceneImageCache = new Map<string, HTMLImageElement>()
 

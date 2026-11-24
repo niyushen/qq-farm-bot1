@@ -1,9 +1,9 @@
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
 import api from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useAccountStore } from '@/stores/account'
-import { storeToRefs } from 'pinia'
 
 /**
  * 好友申请（移植 BUGDey v2.18.12）：分享卡片号池 + 主动加好友。
@@ -31,7 +31,12 @@ const modeHints: Record<string, string> = {
 }
 
 const statusLabels: Record<string, string> = {
-  all: '全部', new: '未申请', pending: '待通过', expired: '已过期', dead: '不可加', friend: '已好友',
+  all: '全部',
+  new: '未申请',
+  pending: '待通过',
+  expired: '已过期',
+  dead: '不可加',
+  friend: '已好友',
 }
 const statusColors: Record<string, string> = {
   new: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
@@ -50,7 +55,8 @@ function headers() {
 }
 
 async function loadPool() {
-  if (!currentAccountId.value) return
+  if (!currentAccountId.value)
+    return
   loading.value = true
   try {
     const { data } = await api.get('/api/friends/pool', headers())
@@ -66,7 +72,8 @@ async function loadPool() {
 }
 
 async function importCodes() {
-  if (!shareText.value.trim() || importing.value) return
+  if (!shareText.value.trim() || importing.value)
+    return
   importing.value = true
   result.value = ''
   try {
@@ -75,10 +82,12 @@ async function importCodes() {
       result.value = data.data.parsed > 0
         ? `已导入 ${data.data.added} 条、更新 ${data.data.updated} 条（识别 ${data.data.parsed} 条分享卡片）`
         : '未识别到有效卡片：每行至少要有 uid，并且带 openid 或 share_key。可粘贴采集器 JSON 或形如 ?uid=...&openid=...&share_key=... 的链接。'
-      if (data.data.parsed > 0) shareText.value = ''
+      if (data.data.parsed > 0)
+        shareText.value = ''
       await loadPool()
     }
-  } finally {
+  }
+  finally {
     importing.value = false
   }
 }
@@ -86,20 +95,25 @@ async function importCodes() {
 function toggleSelect(uid: string) {
   const next = new Set(selected.value)
   const key = String(uid)
-  if (next.has(key)) next.delete(key)
+  if (next.has(key))
+    next.delete(key)
   else next.add(key)
   selected.value = next
 }
 
 async function applySelected() {
   const targets = selectedItems.value
-  if (!targets.length || applying.value) return
+  if (!targets.length || applying.value)
+    return
   applying.value = true
   result.value = ''
   try {
     const { data } = await api.post('/api/friends/apply-invites', {
       items: targets.map((item: any) => ({
-        uid: item.uid, openid: item.openid, shareKey: item.shareKey, shareSource: item.shareSource,
+        uid: item.uid,
+        openid: item.openid,
+        shareKey: item.shareKey,
+        shareSource: item.shareSource,
       })),
       options: { mode: mode.value },
     }, headers())
@@ -112,7 +126,8 @@ async function applySelected() {
       selected.value = new Set()
       await loadPool()
     }
-  } finally {
+  }
+  finally {
     applying.value = false
   }
 }
@@ -130,56 +145,70 @@ onMounted(loadPool)
       <span class="ml-auto text-xs">共 {{ pool.total || 0 }} 条</span>
     </div>
 
-    <div v-if="pool.dailyLimit" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
+    <div v-if="pool.dailyLimit" class="border border-red-200 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
       今日好友申请已达上限，明天再试（{{ pool.dailyLimit.error }}）
     </div>
 
     <section class="farm-card rounded-lg p-4 space-y-3">
       <div class="flex flex-wrap items-center gap-2">
-        <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">添加方式</h4>
-        <div class="flex overflow-hidden rounded-lg border border-gray-200 text-xs dark:border-gray-700">
+        <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">
+          添加方式
+        </h4>
+        <div class="flex overflow-hidden border border-gray-200 rounded-lg text-xs dark:border-gray-700">
           <button
             type="button"
             class="px-3 py-1 transition"
             :class="mode === 'force' ? 'bg-[var(--theme-primary)] text-white' : 'bg-white text-gray-600 dark:bg-gray-900 dark:text-gray-300'"
             @click="mode = 'force'"
-          >强制添加</button>
+          >
+            强制添加
+          </button>
           <button
             type="button"
             class="px-3 py-1 transition"
             :class="mode === 'apply' ? 'bg-[var(--theme-primary)] text-white' : 'bg-white text-gray-600 dark:bg-gray-900 dark:text-gray-300'"
             @click="mode = 'apply'"
-          >申请添加</button>
+          >
+            申请添加
+          </button>
         </div>
       </div>
-      <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ modeHints[mode] }}</p>
+      <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+        {{ modeHints[mode] }}
+      </p>
     </section>
 
     <section class="farm-card rounded-lg p-4 space-y-3">
-      <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">导入分享卡片</h4>
-      <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+      <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">
+        导入分享卡片
+      </h4>
+      <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
         支持采集器推送/导出的 JSON（<code>{"users":[{"gid","shareKey","openid","shareCfgId"}]}</code>）或每行一条 <code>?uid=...&openid=...&share_key=...</code> 链接。
         <b>每行至少要有 uid，并带 openid 或 share_key</b>；强制添加模式必须带 openid（且要与该 share_key 的主人一致）。
       </p>
       <textarea
         v-model="shareText"
         rows="4"
-        class="w-full rounded-lg border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700 outline-none focus:border-[var(--theme-primary)] dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+        class="w-full border border-gray-200 rounded-lg bg-white p-3 text-xs text-gray-700 leading-relaxed outline-none dark:border-gray-700 focus:border-[var(--theme-primary)] dark:bg-gray-900 dark:text-gray-200"
         placeholder="粘贴分享链接，每行一条…"
       />
       <div class="flex items-center gap-2">
-        <BaseButton variant="primary" size="sm" :loading="importing" :disabled="!shareText.trim()" @click="importCodes">导入号池</BaseButton>
+        <BaseButton variant="primary" size="sm" :loading="importing" :disabled="!shareText.trim()" @click="importCodes">
+          导入号池
+        </BaseButton>
         <span v-if="result" class="text-xs text-gray-500 dark:text-gray-400">{{ result }}</span>
       </div>
     </section>
 
     <section class="farm-card rounded-lg p-4 space-y-3">
-      <button type="button" class="flex w-full items-center gap-2 text-left" @click="showCollector = !showCollector">
-        <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">接采集器（自动灌号池）</h4>
+      <button type="button" class="w-full flex items-center gap-2 text-left" @click="showCollector = !showCollector">
+        <h4 class="text-sm text-gray-700 font-medium dark:text-gray-300">
+          接采集器（自动灌号池）
+        </h4>
         <span class="i-carbon-chevron-down text-xs text-gray-400 transition" :class="showCollector ? 'rotate-180' : ''" />
         <span class="ml-auto text-xs text-gray-400">点开看配置</span>
       </button>
-      <div v-if="showCollector" class="space-y-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+      <div v-if="showCollector" class="text-xs text-gray-500 leading-relaxed space-y-2 dark:text-gray-400">
         <p>采集器里设 <code>PANEL_URL</code> 指向本面板，导入接口已按采集器的路径与字段做好兼容，脚本本身一行都不用改：</p>
         <pre class="overflow-x-auto rounded-lg bg-gray-50 p-3 text-[11px] dark:bg-gray-900">PANEL_URL={{ panelOrigin }}
 PANEL_USER=admin
@@ -201,20 +230,26 @@ AUTO_IMPORT=1</pre>
           :class="filter === key ? 'bg-[var(--theme-primary)] text-white' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'"
           @click="filter = key"
         >
-          {{ label }}<template v-if="pool.counts?.[key]"> {{ pool.counts[key] }}</template>
+          {{ label }}<template v-if="pool.counts?.[key]">
+            {{ pool.counts[key] }}
+          </template>
         </button>
         <BaseButton class="ml-auto" variant="secondary" size="sm" :disabled="!selectedItems.length || applying" :loading="applying" @click="applySelected">
           {{ mode === 'force' ? '批量强制添加' : '批量申请' }}（已选 {{ selectedItems.length }}）
         </BaseButton>
       </div>
 
-      <div v-if="loading" class="py-8 text-center text-xs text-gray-500">加载中...</div>
-      <div v-else-if="!visibleItems.length" class="py-8 text-center text-xs text-gray-500">暂无记录，先导入分享卡片</div>
-      <div v-else class="max-h-[420px] space-y-2 overflow-y-auto">
+      <div v-if="loading" class="py-8 text-center text-xs text-gray-500">
+        加载中...
+      </div>
+      <div v-else-if="!visibleItems.length" class="py-8 text-center text-xs text-gray-500">
+        暂无记录，先导入分享卡片
+      </div>
+      <div v-else class="max-h-[420px] overflow-y-auto space-y-2">
         <label
           v-for="item in visibleItems"
           :key="item.uid"
-          class="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 dark:border-gray-700"
+          class="flex cursor-pointer items-center gap-3 border border-gray-100 rounded-lg px-3 py-2 dark:border-gray-700"
         >
           <input type="checkbox" :checked="selected.has(String(item.uid))" @change="toggleSelect(item.uid)">
           <div class="min-w-0 flex-1">

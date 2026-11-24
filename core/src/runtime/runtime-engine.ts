@@ -48,6 +48,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     const {
         workers,
         logPools: LOG_POOLS,
+        globalLogs: GLOBAL_LOGS,
         appendLog: APPEND_LOG,
         accountLogs: ACCOUNT_LOGS,
         runtimeEvents,
@@ -156,6 +157,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     const dataProvider = createDataProvider({
         workers,
         logPools: LOG_POOLS,
+        globalLogs: GLOBAL_LOGS,
         accountLogs: ACCOUNT_LOGS,
         store,
         getAccounts: store.getAccounts,

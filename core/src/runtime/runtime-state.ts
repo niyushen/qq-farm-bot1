@@ -57,6 +57,14 @@ function createRuntimeState(options: RuntimeStateOptions) {
      * 两个数组物理独立；写入只能经 appendLog。
      */
     const logPools: { farm: LogEntry[]; ranch: LogEntry[] } = { farm: [], ranch: [] };
+    /**
+     * 统一日志池（上游 PR #184 引入）。
+     *
+     * 与双池同步维护：写入时两处都推入，容量为两池之和（各 LOG_POOL_LIMIT）。
+     * 双池保留是因为本地按空间分配独立配额（农场/牧场各 2000 条），
+     * 单池则等价上游的全局 1000 条上限 —— 容量会缩水，故两者并存。
+     */
+    const globalLogs: LogEntry[] = [];
     const accountLogs: AccountLogEntry[] = [];
     const runtimeEvents = new EventEmitter();
     let configRevision = Date.now();
@@ -92,6 +100,8 @@ function createRuntimeState(options: RuntimeStateOptions) {
         const pool = logPools[space] || logPools.farm;
         pool.push(entry);
         if (pool.length > LOG_POOL_LIMIT) pool.shift();
+        globalLogs.push(entry);
+        if (globalLogs.length > LOG_POOL_LIMIT * 2) globalLogs.shift();
         return entry;
     }
 
@@ -235,12 +245,21 @@ function createRuntimeState(options: RuntimeStateOptions) {
             if (tag && String(l.tag || '') !== tag) return false;
             if (moduleName) {
                 const logModule = String((l.meta || {}).module || '');
-                if (moduleName === 'system') {
-                    const isSystemTag = String(l.tag || '') === '系统' || String(l.tag || '') === '错误';
-                    if (logModule !== 'system' && !isSystemTag) return false;
-                } else if (logModule !== moduleName) {
-                    return false;
-                }
+                // 日志的模块信息实际落在 tag 上（meta.module 多为空），按 tag 归一化后一起匹配
+                const tag = String(l.tag || '');
+                const TAG_MODULE: Record<string, string> = {
+                    '农场': 'farm', '好友': 'friend', '仓库': 'warehouse',
+                    '牧场': 'ranch', '任务': 'task', '系统': 'system', '错误': 'system',
+                    'QQ机器人': 'qqbot',
+                };
+                const tagModule = TAG_MODULE[tag] || '';
+                const modules = moduleName.split(',').map(s => s.trim()).filter(Boolean);
+                const matched = modules.some((m) => {
+                    if (m === 'system')
+                        return logModule === 'system' || tagModule === 'system';
+                    return logModule === m || tagModule === m;
+                });
+                if (!matched) return false;
             }
             if (eventName && String((l.meta || {}).event || '') !== eventName) return false;
             if (isWarn !== undefined && isWarn !== null && String(isWarn) !== '') {
@@ -260,6 +279,7 @@ function createRuntimeState(options: RuntimeStateOptions) {
     return {
         workers,
         logPools,
+        globalLogs,
         appendLog,
         accountLogs,
         runtimeEvents,

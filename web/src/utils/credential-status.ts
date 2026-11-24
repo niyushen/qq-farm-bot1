@@ -145,7 +145,8 @@ export function getWxPreflightSummary(acc: any, now: number = Date.now()): WxPre
 function pickPositive(...values: any[]): number {
   for (const value of values) {
     const n = Number(value)
-    if (Number.isFinite(n) && n > 0) return n
+    if (Number.isFinite(n) && n > 0)
+      return n
   }
   return 0
 }

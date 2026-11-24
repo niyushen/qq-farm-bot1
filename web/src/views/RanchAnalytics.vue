@@ -74,7 +74,9 @@ async function load() {
   }
 }
 
-watch(currentAccountId, () => { void load() }, { immediate: true })
+watch(currentAccountId, () => {
+  void load()
+}, { immediate: true })
 
 const animals = computed<AnimalRow[]>(() => {
   const rows = (data.value?.animals || []).filter((row) => {
@@ -104,7 +106,7 @@ function expPerHour(row: AnimalRow) {
   <div class="page-stack ranch-analytics">
     <EmptyState v-if="!currentAccountId" title="请先选择账号" description="在左侧选择账号后查看牧场分析" icon="i-carbon-user-avatar" />
     <template v-else>
-      <div class="analytics-loading" v-if="loading && !data" role="status" aria-label="正在读取牧场分析">
+      <div v-if="loading && !data" class="analytics-loading" role="status" aria-label="正在读取牧场分析">
         <span class="i-svg-spinners-90-ring-with-bg" />
       </div>
       <EmptyState v-else-if="!data" tone="error" title="牧场分析读取失败" :description="error" icon="i-carbon-warning-alt">
@@ -145,11 +147,15 @@ function expPerHour(row: AnimalRow) {
             </thead>
             <tbody>
               <tr v-for="animal in animals" :key="animal.id">
-                <td class="analytics-name">{{ animal.name }}</td>
+                <td class="analytics-name">
+                  {{ animal.name }}
+                </td>
                 <td>{{ animal.husbandryType || '—' }}</td>
                 <td>{{ duration(animal.infantSec) }} / {{ duration(animal.growSec) }}</td>
                 <td>{{ duration(animal.cycleSeconds) }}</td>
-                <td class="tabular-nums">{{ expPerHour(animal) }}</td>
+                <td class="tabular-nums">
+                  {{ expPerHour(animal) }}
+                </td>
                 <td>{{ duration(animal.produceCycleSec) }}</td>
                 <td>{{ animal.maxProduceCount || '—' }}</td>
                 <td>{{ animal.product?.name || '—' }} × {{ animal.product?.count || '—' }}</td>

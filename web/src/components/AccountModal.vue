@@ -1267,7 +1267,7 @@ document.addEventListener('visibilitychange', handleVisibilityChange)
                   :key="item.address"
                   class="flex items-center justify-between gap-2"
                 >
-                  <span class="min-w-0 break-all font-mono text-xs">
+                  <span class="min-w-0 break-all text-xs font-mono">
                     {{ item.address }}:{{ captureFlow.publicInfo.mitmPort }}
                   </span>
                   <span
@@ -1414,7 +1414,7 @@ document.addEventListener('visibilitychange', handleVisibilityChange)
           </div>
         </template>
 
-        <div class="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <div class="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-xs text-amber-800 leading-5 dark:bg-amber-900/20 dark:text-amber-200">
           <div>每次任务的代理端口可能变化，请以当前页面显示为准。</div>
           <div class="mt-1">
             服务端会自动释放代理，但账号完成后仍需在手机上手动关闭 Wi-Fi 代理。

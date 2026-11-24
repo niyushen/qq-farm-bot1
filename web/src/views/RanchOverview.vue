@@ -147,7 +147,9 @@ function facilityMeter(f: any) {
    位置与农场首页右侧那两栏一致：先倒计时、再今日统计，
    倒计时三环（牧场 / 帮助 / 偷取）来自牧场的每日例程。 */
 const now = ref(Date.now())
-const ticker = window.setInterval(() => { now.value = Date.now() }, 1000)
+const ticker = window.setInterval(() => {
+  now.value = Date.now()
+}, 1000)
 onBeforeUnmount(() => window.clearInterval(ticker))
 
 // 与农场首页一致：牧场 / 帮助 / 偷取
@@ -175,10 +177,10 @@ const checks = computed(() => RANCH_CHECKS.map((item) => {
   const value = !queue
     ? '读取中'
     : !queue.enabled
-      ? '未开启'
-      : queue.done && !queue.nextAt
-        ? '已完成'
-        : remain > 0 ? formatCountdown(remain) : '检查中…'
+        ? '未开启'
+        : queue.done && !queue.nextAt
+          ? '已完成'
+          : remain > 0 ? formatCountdown(remain) : '检查中…'
   // 进度环：没有下一次检查时间就按「本轮已完成」画满。
   const progress = queue && queue.enabled ? (queue.nextAt ? Math.min(100, Math.max(0, 100 - remain / Math.max(1, Math.round((Number(queue.nextAt) - Number(queue.lastAt || 0)) / 1000)) * 100)) : 100) : 0
   return { ...item, value, progress: ready ? 100 : progress }
@@ -267,8 +269,14 @@ const expTile = computed(() => ({
  * 表里没列到的动作（otherActionTiles）自动排在末尾，保持原有相对顺序。
  */
 const TODAY_TILE_ORDER = [
-  'currency-1007', 'today-exp', 'currency-7002', 'currency-1008',
-  'action-sell', 'action-steal', 'action-clean', 'action-putMosquito',
+  'currency-1007',
+  'today-exp',
+  'currency-7002',
+  'currency-1008',
+  'action-sell',
+  'action-steal',
+  'action-clean',
+  'action-putMosquito',
 ]
 
 const todayTiles = computed(() => {
@@ -402,7 +410,7 @@ const activeTodayCount = computed(() => todayTiles.value.filter(tile => tile.val
                     <span class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ check.label }}</span>
                   </div>
                 </div>
-                <div class="mt-1.5 w-full truncate text-sm font-bold font-mono 2xl:text-base" :title="check.value">
+                <div class="mt-1.5 w-full truncate text-sm font-mono font-bold 2xl:text-base" :title="check.value">
                   {{ check.value }}
                 </div>
               </div>

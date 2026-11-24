@@ -45,23 +45,19 @@ function applySocketSubscription(ctx: AdminContext, socket: any, accountRef: str
             socket.emit('status:update', { accountId: targetId, status: currentStatus });
         }
         if (ctx.provider && typeof ctx.provider.getLogs === 'function') {
-            // 快照按空间分推：前端按 space 分别替换对应缓冲，
-            // 合并推一份的话总量只有 100 条，「每空间 100 条」无法成立
-            for (const space of ['ranch', 'farm']) {
-                let currentLogs: any[] = ctx.provider.getLogs(targetId, { limit: 100, space });
-                if (!Array.isArray(currentLogs)) currentLogs = [];
-                // 用户隔离：聚合视图（account:all）按归属过滤日志
-                if (!targetId && user) {
-                    const ownedIds = new Set(getAccountList(ctx, user).map((a: any) => String(a.id || '')).filter(Boolean));
-                    currentLogs = currentLogs.filter((entry: any) => ownedIds.has(String(entry?.accountId || '')));
-                }
-
-                socket.emit('logs:snapshot', {
-                    accountId: targetId || 'all',
-                    space,
-                    logs: currentLogs,
-                });
+            // 冗余缓存：逐块务农日志密集，前端要先聚合再截断，快照给足原始行
+            let currentLogs: any[] = ctx.provider.getLogs(targetId, { limit: 500 });
+            if (!Array.isArray(currentLogs)) currentLogs = [];
+            // 用户隔离：聚合视图（account:all）按归属过滤日志
+            if (!targetId && user) {
+                const ownedIds = new Set(getAccountList(ctx, user).map((a: any) => String(a.id || '')).filter(Boolean));
+                currentLogs = currentLogs.filter((entry: any) => ownedIds.has(String(entry?.accountId || '')));
             }
+
+            socket.emit('logs:snapshot', {
+                accountId: targetId || 'all',
+                logs: currentLogs,
+            });
         }
         if (ctx.provider && typeof ctx.provider.getAccountLogs === 'function') {
             let currentAccountLogs: any[] = ctx.provider.getAccountLogs(100);

@@ -119,7 +119,7 @@ onMounted(load)
     <template v-else>
       <div class="mb-3 flex flex-wrap items-center gap-2">
         <button
-          class="text-[var(--theme-primary)] border rounded-lg bg-gray-50 px-3 py-1.5 text-sm tracking-wider font-mono transition dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
+          class="border rounded-lg bg-gray-50 px-3 py-1.5 text-sm text-[var(--theme-primary)] tracking-wider font-mono transition dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700"
           style="border-color: var(--surface-border);"
           title="点击复制邀请码"
           @click="copyCode"
@@ -154,7 +154,7 @@ onMounted(load)
           </div>
         </div>
         <div class="border rounded-lg py-2" style="border-color: var(--surface-border);">
-          <div class="text-[var(--theme-primary)] text-lg font-semibold">
+          <div class="text-lg text-[var(--theme-primary)] font-semibold">
             {{ data.earnedDays }} 天
           </div>
           <div class="text-[11px] text-gray-400">

@@ -7,6 +7,8 @@ interface DataProviderOptions {
     workers: Record<string, any>;
     /** 按空间拆分的运行日志池：farm=全部非牧场日志，ranch=牧场日志 */
     logPools: { farm: any[]; ranch: any[] };
+    /** 统一日志池（上游 PR #184）：与双池同步写入 */
+    globalLogs?: any[];
     accountLogs: any[];
     store: any;
     getAccounts: () => any;
@@ -44,6 +46,7 @@ function createDataProvider(options: DataProviderOptions) {
     const {
         workers,
         logPools,
+        globalLogs = [],
         accountLogs,
         store,
         getAccounts,
@@ -129,6 +132,7 @@ function createDataProvider(options: DataProviderOptions) {
 
             if (!rawRef || rawRef === 'all') {
                 for (const pool of targets) pool.length = 0;
+                globalLogs.length = 0;
                 return { cleared: 'all' };
             }
 
@@ -143,6 +147,11 @@ function createDataProvider(options: DataProviderOptions) {
                         cleared++;
                     }
                 }
+            }
+            // 统一日志池与双池同步清理，避免清空后仍能查到旧条目
+            for (let i = globalLogs.length - 1; i >= 0; i--) {
+                if (String(globalLogs[i].accountId || '') === accId)
+                    globalLogs.splice(i, 1);
             }
             return { cleared, accountId };
         },

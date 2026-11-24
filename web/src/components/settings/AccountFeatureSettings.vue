@@ -18,20 +18,20 @@ import {
   RANCH_STRATEGY_OPTIONS,
 } from '@/utils/ranch'
 
-type ModuleKey =
-  | 'planting'
-  | 'fertilizer'
-  | 'friends'
-  | 'steal'
-  | 'merchant'
-  | 'daily'
-  | 'ranch_husbandry'
-  | 'ranch_feed'
-  | 'ranch_friends'
-  | 'ranch_steal'
-  | 'ranch_merchant'
-  | 'ranch_daily'
-  | 'events'
+type ModuleKey
+  = | 'planting'
+    | 'fertilizer'
+    | 'friends'
+    | 'steal'
+    | 'merchant'
+    | 'daily'
+    | 'ranch_husbandry'
+    | 'ranch_feed'
+    | 'ranch_friends'
+    | 'ranch_steal'
+    | 'ranch_merchant'
+    | 'ranch_daily'
+    | 'events'
 
 const props = defineProps<{
   currentAccountName: string | null
@@ -110,7 +110,8 @@ const activeInfo = computed(() => activeModule.value ? moduleInfo[activeModule.v
 /** 配置弹窗里当前牧场模块要显示的开关（按 RANCH_MODULE_SWITCHES 的顺序）。 */
 const activeRanchSwitches = computed(() => {
   const key = activeModule.value
-  if (!key || !(key in RANCH_MODULE_SWITCHES)) return []
+  if (!key || !(key in RANCH_MODULE_SWITCHES))
+    return []
   return RANCH_MODULE_SWITCHES[key]!
     .map(switchKey => RANCH_AUTOMATION_SWITCHES.find(item => item.key === switchKey))
     .filter((item): item is (typeof RANCH_AUTOMATION_SWITCHES)[number] => !!item)
@@ -141,7 +142,8 @@ const scopedModuleKeys = computed(() => {
 
 const scopedGroupLabel = computed(() => {
   const group = props.group || 'all'
-  if (group === 'all') return '农场自动配置'
+  if (group === 'all')
+    return '农场自动配置'
   return MODULE_GROUPS.find(item => item.key === group)?.label || ''
 })
 
@@ -150,7 +152,8 @@ const moduleGroups = computed(() => MODULE_GROUPS
   .map(group => ({
     ...group,
     items: group.modules.filter(key => moduleInfo[key]).map(key => ({ key, info: moduleInfo[key]! })),
-  })).filter(group => group.items.length > 0))
+  }))
+  .filter(group => group.items.length > 0))
 const fertilizerName = computed(() => props.fertilizerOptions.find(item => item.value === automation.value.automation.fertilizer)?.label || '未设置')
 const selectedLandNames = computed(() => props.fertilizerLandTypeOptions.filter(item => automation.value.automation.fertilizer_land_types?.includes(item.value)).map(item => item.label))
 const selectedLandTypeCount = computed(() => Array.isArray(automation.value.automation.fertilizer_land_types) ? automation.value.automation.fertilizer_land_types.length : 0)
@@ -435,46 +438,46 @@ function cancel() {
             :key="key"
             class="group min-h-[184px] flex flex-col border border-gray-200 rounded-lg bg-white p-4 transition dark:border-gray-700 hover:border-[var(--theme-primary)] dark:bg-gray-800 hover:shadow-sm"
           >
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0 flex items-center gap-3">
-              <img v-if="info.image" :src="info.image" alt="" class="h-10 w-10 shrink-0 rounded-lg bg-gray-100 object-contain p-1.5 dark:bg-gray-700">
-              <span v-else class="inline-grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gray-100 text-xl dark:bg-gray-700" :class="info.icon" />
-              <div>
-                <h4 class="text-gray-900 font-semibold dark:text-gray-100">
-                  {{ info.title }}
-                </h4>
-                <p class="mt-0.5 text-xs text-gray-500">
-                  {{ info.description }}
-                </p>
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex items-center gap-3">
+                <img v-if="info.image" :src="info.image" alt="" class="h-10 w-10 shrink-0 rounded-lg bg-gray-100 object-contain p-1.5 dark:bg-gray-700">
+                <span v-else class="inline-grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-gray-100 text-xl dark:bg-gray-700" :class="info.icon" />
+                <div>
+                  <h4 class="text-gray-900 font-semibold dark:text-gray-100">
+                    {{ info.title }}
+                  </h4>
+                  <p class="mt-0.5 text-xs text-gray-500">
+                    {{ info.description }}
+                  </p>
+                </div>
               </div>
+              <BaseSwitch
+                :aria-label="`${info.title}自动化`"
+                :model-value="moduleEnabled(key as ModuleKey)"
+                :disabled="saving || (mutationTestActive && (key === 'planting' || key === 'fertilizer'))"
+                @update:model-value="setModuleEnabled(key as ModuleKey, !!$event)"
+              />
             </div>
-            <BaseSwitch
-              :aria-label="`${info.title}自动化`"
-              :model-value="moduleEnabled(key as ModuleKey)"
-              :disabled="saving || (mutationTestActive && (key === 'planting' || key === 'fertilizer'))"
-              @update:model-value="setModuleEnabled(key as ModuleKey, !!$event)"
-            />
-          </div>
 
-          <div class="mt-4 min-h-[56px] flex flex-wrap content-start gap-2">
-            <span
-              v-for="tag in summaryTags(key as ModuleKey)"
-              :key="tag"
-              class="max-w-full truncate rounded-md bg-gray-50 px-2.5 py-1 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300"
-            >
-              {{ tag }}
-            </span>
-          </div>
+            <div class="mt-4 min-h-[56px] flex flex-wrap content-start gap-2">
+              <span
+                v-for="tag in summaryTags(key as ModuleKey)"
+                :key="tag"
+                class="max-w-full truncate rounded-md bg-gray-50 px-2.5 py-1 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300"
+              >
+                {{ tag }}
+              </span>
+            </div>
 
-          <div class="mt-auto flex items-center justify-between pt-4">
-            <span class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-              <span class="h-2 w-2 rounded-full" :class="moduleEnabled(key as ModuleKey) ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'" />
-              {{ moduleStateLabel(key as ModuleKey) }}
-            </span>
-            <BaseButton variant="secondary" size="sm" @click="openModule(key as ModuleKey)">
-              配置
-            </BaseButton>
-          </div>
+            <div class="mt-auto flex items-center justify-between pt-4">
+              <span class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                <span class="h-2 w-2 rounded-full" :class="moduleEnabled(key as ModuleKey) ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'" />
+                {{ moduleStateLabel(key as ModuleKey) }}
+              </span>
+              <BaseButton variant="secondary" size="sm" @click="openModule(key as ModuleKey)">
+                配置
+              </BaseButton>
+            </div>
           </article>
         </div>
       </div>

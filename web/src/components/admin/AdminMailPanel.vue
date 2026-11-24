@@ -226,7 +226,7 @@ onMounted(loadRecipients)
           v-for="template in templates"
           :key="template.key"
           type="button"
-          class="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 transition hover:border-emerald-500 hover:text-emerald-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          class="border border-gray-200 rounded-full bg-white px-3 py-1 text-xs text-gray-600 transition dark:border-gray-700 hover:border-emerald-500 dark:bg-gray-800 dark:text-gray-300 hover:text-emerald-600"
           @click="applyTemplate(template)"
         >
           {{ template.label }}
@@ -241,7 +241,7 @@ onMounted(loadRecipients)
           <textarea
             v-model="content"
             rows="6"
-            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 dark:border-gray-700 dark:bg-gray-800"
+            class="w-full border border-gray-200 rounded-lg bg-white px-3 py-2 text-sm outline-none dark:border-gray-700 focus:border-emerald-500 dark:bg-gray-800"
             placeholder="支持多行文本，会原样作为邮件正文发送"
           />
         </div>
@@ -273,11 +273,11 @@ onMounted(loadRecipients)
         </BaseButton>
       </div>
 
-      <div class="custom-scrollbar max-h-[420px] overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div class="custom-scrollbar max-h-[420px] overflow-y-auto border border-gray-200 rounded-lg dark:border-gray-700">
         <label
           v-for="item in filtered"
           :key="item.username"
-          class="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-3 py-2 last:border-b-0 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/60"
+          class="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-3 py-2 last:border-b-0 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/60"
         >
           <input
             type="checkbox"
@@ -314,13 +314,13 @@ onMounted(loadRecipients)
         </BaseButton>
       </div>
 
-      <div v-if="result" class="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+      <div v-if="result" class="mt-3 border border-gray-200 rounded-lg bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/60">
         <div class="mb-1 text-gray-700 dark:text-gray-200">
           发送结果：成功 <b class="text-green-600">{{ result.sent }}</b>，
           失败 <b class="text-red-500">{{ result.failed }}</b>，
           跳过 <b>{{ result.skipped.length }}</b>
         </div>
-        <ul v-if="result.skipped.length" class="max-h-40 list-disc space-y-0.5 overflow-y-auto pl-4 text-gray-500 dark:text-gray-400">
+        <ul v-if="result.skipped.length" class="max-h-40 list-disc overflow-y-auto pl-4 text-gray-500 space-y-0.5 dark:text-gray-400">
           <li v-for="item in result.skipped" :key="item.username">
             {{ item.username }} — {{ item.reason }}
           </li>
