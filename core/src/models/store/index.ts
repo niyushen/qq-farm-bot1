@@ -25,6 +25,7 @@ module.exports = {
     getPrioritize2x2Crops: accountConfig.getPrioritize2x2Crops,
     getIntervals: accountConfig.getIntervals,
     getFriendQuietHours: accountConfig.getFriendQuietHours,
+    getStealFrequencyTier: accountConfig.getStealFrequencyTier,
     getKnownFriendGids: accountConfig.getKnownFriendGids,
     setKnownFriendGids: accountConfig.setKnownFriendGids,
     getKnownFriendGidSyncCooldownSec: accountConfig.getKnownFriendGidSyncCooldownSec,

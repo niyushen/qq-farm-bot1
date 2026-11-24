@@ -627,6 +627,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const preferredSeed = id ? store.getPreferredSeed(id) : null;
             const capitalMode = id && (typeof store.getCapitalMode === 'function') ? store.getCapitalMode(id) : { enabled: false, dogId: 0, leadSeconds: 10 };
             const friendQuietHours = id ? store.getFriendQuietHours(id) : null;
+            const stealFrequencyTier = id && (typeof store.getStealFrequencyTier === 'function') ? store.getStealFrequencyTier(id) : 'standard';
             const automation = id ? store.getAutomation(id) : {};
             const stealDelaySeconds = id && (typeof store.getStealDelaySeconds === 'function') ? store.getStealDelaySeconds(id) : 0;
             const plantOrderRandom = id && (typeof store.getPlantOrderRandom === 'function') ? store.getPlantOrderRandom(id) : false;
@@ -661,7 +662,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const globalMailer = typeof featuresStore.getGlobalMailerPublic === 'function'
                 ? featuresStore.getGlobalMailerPublic()
                 : { available: false, senderName: '' };
-            res.json({ ok: true, data: { intervals, strategy, preferredSeed, capitalMode, friendQuietHours, automation, stealDelaySeconds, plantOrderRandom, plantDelaySeconds, goldenBugKeepCount, goldenBugRoundLimit, fertilizerBuyOrganicCount, fertilizerBuyOrganicThresholdHours, fertilizerBuyNormalCount, fertilizerBuyNormalThresholdHours, fertilizerBuyCheckIntervalMinutes, bagSeedPriority, bagSeedMultiLandReservationEnabled, bagSeedLandTypes, bagSeedFallbackStrategy, prioritize2x2Crops, autoAcceptFriendMinLevel, autoAcceptRequireOwnLevel, autoAcceptHarvestStealEnabled, autoAcceptHarvestStealHarvest, autoAcceptHarvestStealSteal, autoCodeRefresh, ui, offlineReminder, globalMailer } });
+            res.json({ ok: true, data: { intervals, strategy, preferredSeed, capitalMode, friendQuietHours, stealFrequencyTier, automation, stealDelaySeconds, plantOrderRandom, plantDelaySeconds, goldenBugKeepCount, goldenBugRoundLimit, fertilizerBuyOrganicCount, fertilizerBuyOrganicThresholdHours, fertilizerBuyNormalCount, fertilizerBuyNormalThresholdHours, fertilizerBuyCheckIntervalMinutes, bagSeedPriority, bagSeedMultiLandReservationEnabled, bagSeedLandTypes, bagSeedFallbackStrategy, prioritize2x2Crops, autoAcceptFriendMinLevel, autoAcceptRequireOwnLevel, autoAcceptHarvestStealEnabled, autoAcceptHarvestStealHarvest, autoAcceptHarvestStealSteal, autoCodeRefresh, ui, offlineReminder, globalMailer } });
         } catch (e: any) {
             handleApiError(res, e);
         }

@@ -1,4 +1,4 @@
-import type { AccountConfig, AutoCodeRefreshConfig, AutomationConfig, BagSeedFallbackStrategy, CapitalModeConfig, FertilizerLandType, FertilizerMode, GlobalConfig, IntervalConfig, LoginSettings, OfflineReminder, PlantingStrategy, QuietHoursConfig } from '../../types/config';
+import type { AccountConfig, AutoCodeRefreshConfig, AutomationConfig, BagSeedFallbackStrategy, CapitalModeConfig, FertilizerLandType, FertilizerMode, GlobalConfig, IntervalConfig, LoginSettings, OfflineReminder, PlantingStrategy, QuietHoursConfig, StealFrequencyTier } from '../../types/config';
 export {};
 
 const { DEFAULT_TIME_ZONE, normalizeTimeZone, resolveClientVersion } = require('../../config/config');
@@ -7,6 +7,7 @@ const { createConfigStorage } = require('./config-storage');
 const { storageError } = require('../../services/json-db');
 const { parseHourOfDay } = require('../../utils/hour-of-day');
 const { RANCH_AUTOMATION_DEFAULTS, normalizeRanchSetting, migrateRanchMarketAutomation } = require('../../config/ranch-automation');
+const { DEFAULT_STEAL_FREQUENCY_TIER, normalizeStealFrequencyTier } = require('../../config/steal-frequency');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -137,6 +138,8 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
         end: '07:30',
         continueFarm: true,
     },
+    // 偷菜频率档位：好友摘要校准周期。老账号无此字段时按历史默认（15 分钟）归一化，行为不变。
+    stealFrequencyTier: DEFAULT_STEAL_FREQUENCY_TIER,
     knownFriendGids: [],
     knownFriendGidSyncCooldownSec: DEFAULT_KNOWN_FRIEND_GID_SYNC_COOLDOWN_SEC,
     friendsListCacheTtlSec: DEFAULT_FRIENDS_LIST_CACHE_TTL_SEC,
@@ -363,6 +366,7 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         autoCodeRefresh: normalizeAutoCodeRefresh(base.autoCodeRefresh !== undefined ? base.autoCodeRefresh : DEFAULT_ACCOUNT_CONFIG.autoCodeRefresh),
         intervals: { ...(base.intervals || DEFAULT_ACCOUNT_CONFIG.intervals) },
         friendQuietHours: { ...DEFAULT_ACCOUNT_CONFIG.friendQuietHours, ...(base.friendQuietHours || {}) },
+        stealFrequencyTier: normalizeStealFrequencyTier(base.stealFrequencyTier),
         knownFriendGids,
         knownFriendGidSyncCooldownSec,
         friendsListCacheTtlSec,
@@ -469,6 +473,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
                 ? !!src.friendQuietHours.continueFarm
                 : (old.continueFarm !== undefined ? !!old.continueFarm : true),
         };
+    }
+
+    if (src.stealFrequencyTier !== undefined && src.stealFrequencyTier !== null) {
+        cfg.stealFrequencyTier = normalizeStealFrequencyTier(src.stealFrequencyTier);
     }
 
     if (Array.isArray(src.friendBlacklist)) {

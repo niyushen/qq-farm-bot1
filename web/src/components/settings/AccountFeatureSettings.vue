@@ -11,6 +11,7 @@ import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import HourInput from '@/components/ui/HourInput.vue'
 import { MILK_TEA_ACTIVITY_WINDOW, MILK_TEA_AUTOMATION_OPTIONS, SHARE_REWARD_ACTIVITY_WINDOW } from '@/constants/activity-windows'
 import { FERTILIZER_TIME_UNITS, fertilizerTimeSeconds, fertilizerTimeValue } from '@/utils/fertilizer-time'
+import { STEAL_FREQUENCY_OPTIONS, getStealFrequencyOption } from '@/utils/steal-frequency'
 import {
   RANCH_AUTOMATION_LIMITS,
   RANCH_AUTOMATION_SWITCHES,
@@ -192,6 +193,14 @@ function intervalTag(min: number, max: number) {
   return `${min}-${max} 秒`
 }
 
+/** 偷菜频率档位：摘要校准周期三档。 */
+const stealFrequencyOptions = STEAL_FREQUENCY_OPTIONS.map(option => ({
+  value: option.value,
+  label: `${option.label}（${option.minutes} 分钟）`,
+}))
+const stealFrequencyDesc = computed(() => getStealFrequencyOption(strategy.value.stealFrequencyTier).desc)
+const stealFrequencyMinutes = computed(() => getStealFrequencyOption(strategy.value.stealFrequencyTier).minutes)
+
 function moduleStateLabel(key: ModuleKey) {
   if (key === 'events' || key === 'daily')
     return moduleEnabled(key) ? '已配置' : '未开启'
@@ -239,9 +248,11 @@ function summaryTags(key: ModuleKey) {
         : onlyGolden
           ? '只偷黄金果实'
           : '偷全部果实'
+    const frequency = getStealFrequencyOption(strategy.value.stealFrequencyTier)
     return [
       automation.value.automation.friend_steal ? '偷菜开启' : '偷菜关闭',
       target,
+      `偷菜频率 ${frequency.label}`,
       '巡查节奏自动跟随好友作物成熟时间',
     ]
   }
@@ -684,6 +695,27 @@ function cancel() {
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   偷菜巡查不再使用固定的巡查间隔或延迟设置。系统会根据已知好友农场的作物成熟时间动态计算下一次巡查的时机，成熟越近巡查越勤，避免固定间隔造成的空跑或错过窗口。开启右上角的开关即可自动运行。
                 </p>
+              </section>
+
+              <section class="border border-gray-100 rounded-lg p-4 space-y-3 dark:border-gray-700">
+                <div class="text-sm text-gray-700 font-medium dark:text-gray-300">
+                  偷菜频率
+                </div>
+                <BaseSelect
+                  v-model="strategy.stealFrequencyTier"
+                  label="摘要校准周期"
+                  :options="stealFrequencyOptions"
+                />
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ stealFrequencyDesc }}。
+                </p>
+                <div class="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-gray-800/50 dark:text-gray-400">
+                  <span class="i-carbon-information mt-0.5 shrink-0 text-sm text-gray-400" />
+                  <span>
+                    偷菜巡查始终在好友作物成熟的瞬间醒来，这里调整的只是「多久刷新一次好友成熟时间」。
+                    当前每 {{ stealFrequencyMinutes }} 分钟校准一次。
+                  </span>
+                </div>
               </section>
 
               <section class="border border-gray-100 rounded-lg p-4 space-y-3 dark:border-gray-700">

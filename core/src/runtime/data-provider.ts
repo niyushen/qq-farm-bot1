@@ -362,6 +362,7 @@ function createDataProvider(options: DataProviderOptions) {
                 'automation',
                 'intervals',
                 'friendQuietHours',
+                'stealFrequencyTier',
                 'stealDelaySeconds',
                 'plantOrderRandom',
                 'plantDelaySeconds',

@@ -1,9 +1,10 @@
-import type { AccountConfig, AutomationConfig, BagSeedFallbackStrategy, CapitalModeConfig, FertilizerLandType, IntervalConfig, PlantingStrategy, QuietHoursConfig } from '../../types/config';
+import type { AccountConfig, AutomationConfig, BagSeedFallbackStrategy, CapitalModeConfig, FertilizerLandType, IntervalConfig, PlantingStrategy, QuietHoursConfig, StealFrequencyTier } from '../../types/config';
 export {};
 
 const sharedState = require('./shared-state');
 const { assertEmailClaimHour } = require('../../utils/hour-of-day');
 const { normalizeRanchSetting, migrateRanchMarketAutomation } = require('../../config/ranch-automation');
+const { normalizeStealFrequencyTier } = require('../../config/steal-frequency');
 const { readKnownFriendGidsCache, writeKnownFriendGidsCache } = require('./gid-cache');
 
 const {
@@ -118,6 +119,7 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         capitalMode: { ...cfg.capitalMode },
         intervals: { ...cfg.intervals },
         friendQuietHours: { ...cfg.friendQuietHours },
+        stealFrequencyTier: normalizeStealFrequencyTier(cfg.stealFrequencyTier, sharedState.DEFAULT_ACCOUNT_CONFIG.stealFrequencyTier),
         knownFriendGids: [...(cfg.knownFriendGids || [])],
         knownFriendGidSyncCooldownSec: cfg.knownFriendGidSyncCooldownSec,
         friendsListCacheTtlSec: cfg.friendsListCacheTtlSec,
@@ -210,6 +212,12 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
                 ? !!cfg.friendQuietHours.continueFarm
                 : (old.continueFarm !== undefined ? !!old.continueFarm : true),
         };
+    }
+
+    if (cfg.stealFrequencyTier !== undefined && cfg.stealFrequencyTier !== null) {
+        // 非法档位一律回落到默认档（而不是保留当前值）：
+        // 归一化结果必须只由入参决定，否则同一份配置在不同账号/不同历史状态下会得到不同档位。
+        next.stealFrequencyTier = normalizeStealFrequencyTier(cfg.stealFrequencyTier);
     }
 
     if (Array.isArray(cfg.friendBlacklist)) {
@@ -392,6 +400,14 @@ function getIntervals(accountId?: unknown): IntervalConfig {
 
 function getFriendQuietHours(accountId?: unknown): QuietHoursConfig {
     return { ...getAccountConfigSnapshot(accountId).friendQuietHours };
+}
+
+/** 偷菜频率档位：决定好友摘要校准周期。 */
+function getStealFrequencyTier(accountId?: unknown): StealFrequencyTier {
+    return normalizeStealFrequencyTier(
+        getAccountConfigSnapshot(accountId).stealFrequencyTier,
+        sharedState.DEFAULT_ACCOUNT_CONFIG.stealFrequencyTier,
+    );
 }
 
 function getKnownFriendGids(accountId?: unknown): number[] {
@@ -586,6 +602,7 @@ module.exports = {
     getPrioritize2x2Crops,
     getIntervals,
     getFriendQuietHours,
+    getStealFrequencyTier,
     getKnownFriendGids,
     setKnownFriendGids,
     getKnownFriendGidSyncCooldownSec,

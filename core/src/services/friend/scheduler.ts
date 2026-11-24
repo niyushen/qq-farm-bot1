@@ -16,6 +16,7 @@ const {
     isAutomationOn,
     getFriendBlacklist,
     getStealDelaySeconds,
+    getStealFrequencyTier,
     getAutoAcceptFriendMinLevel,
     getAutoAcceptRequireOwnLevel,
     getAutoAcceptHarvestStealEnabled,
@@ -490,17 +491,28 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
 
 // ============ 偷菜排程（老版本 runScheduledStealCheck 移植）============
 
-const STEAL_CALIBRATION_INTERVAL_MS = 15 * 60 * 1000;
+const { getStealCalibrationMs } = require('../../config/steal-frequency');
+
+/**
+ * 摘要校准周期跟随账号配置的三档偷菜频率（relaxed 15 分钟 / standard 8 分钟 / eager 3 分钟）。
+ *
+ * 每次判定都重新读取当前档位，而不是记死「上轮生效的周期」：
+ * 用户改档后，下一轮检查就按新周期判断——从标准切勤快时 3 分钟内就会补一次校准，
+ * 从勤快切省心时则按 15 分钟的窗口走，不会因为旧窗口太短而频繁拉好友列表。
+ */
 let lastStealCalibrationAt = 0;
 
 function isStealCalibrationDue(now: number = Date.now()): boolean {
-    return now - lastStealCalibrationAt >= STEAL_CALIBRATION_INTERVAL_MS;
+    if (!lastStealCalibrationAt) return true;
+    const intervalMs = getStealCalibrationMs(getStealFrequencyTier());
+    return now - lastStealCalibrationAt >= intervalMs;
 }
 
 /**
  * 成熟驱动的偷菜巡查：只进「到期好友 + 摘要显示已可偷的好友」的农场，
- * 每 15 分钟校准一轮好友列表摘要。返回下次偷菜唤醒延迟（毫秒），
- * 由 worker 的独立偷菜 Tick 消费——作物成熟的瞬间醒来去偷，与老版本节奏一致。
+ * 摘要校准周期跟随账号的偷菜频率档位（relaxed 15 分钟 / standard 8 分钟 / eager 3 分钟）。
+ * 返回下次偷菜唤醒延迟（毫秒），由 worker 的独立偷菜 Tick 消费——
+ * 作物成熟的瞬间醒来去偷；校准周期只决定「多久刷新一次好友成熟时间」，不改变成熟驱动的唤醒时机。
  */
 export async function runScheduledStealCheck(): Promise<number> {
     const state: any = getUserState();

@@ -78,6 +78,9 @@ export interface QuietHoursConfig {
   continueFarm: boolean;
 }
 
+/** 偷菜频率档位：决定好友摘要校准周期（偷菜巡查本身仍是成熟驱动）。 */
+export type StealFrequencyTier = 'relaxed' | 'standard' | 'eager';
+
 /** 宠物资本模式：成熟前 leadSeconds 秒自动派出守护宠物，收获 5 秒后召回。 */
 export interface CapitalModeConfig {
   enabled: boolean;
@@ -95,6 +98,8 @@ export interface AccountConfig {
   autoCodeRefresh: AutoCodeRefreshConfig;
   intervals: IntervalConfig;
   friendQuietHours: QuietHoursConfig;
+  /** 偷菜频率档位：好友摘要校准周期档位（relaxed 15 分钟 / standard 8 分钟 / eager 3 分钟）。 */
+  stealFrequencyTier: StealFrequencyTier;
   knownFriendGids: number[];
   knownFriendGidSyncCooldownSec: number;
   friendsListCacheTtlSec: number;

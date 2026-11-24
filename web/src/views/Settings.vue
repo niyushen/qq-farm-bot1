@@ -24,6 +24,8 @@ import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
 import { formatExpiresAt, formatRemaining, useUserStore } from '@/stores/user'
 import { parseHourOfDay } from '@/utils/hour-of-day'
+import type { StealFrequencyTier } from '@/utils/steal-frequency'
+import { normalizeStealFrequencyTier } from '@/utils/steal-frequency'
 import AdminPanel from '@/views/AdminPanel.vue'
 
 const fertilizerLandTypeOptions = [
@@ -324,6 +326,7 @@ const localStrategySettings = ref({
   plantDelaySeconds: 0,
   intervals: { farmMin: 20, farmMax: 25, friendMin: 30, friendMax: 35 },
   friendQuietHours: { enabled: false, start: '23:00', end: '07:00', continueFarm: true },
+  stealFrequencyTier: 'standard' as StealFrequencyTier,
 })
 
 const plantingStrategyOptions = [
@@ -366,6 +369,7 @@ function syncLocalStrategySettings() {
         continueFarm: true,
         ...(settings.value.friendQuietHours || {}),
       },
+      stealFrequencyTier: normalizeStealFrequencyTier(settings.value.stealFrequencyTier),
     }))
   }
 }

@@ -4,6 +4,7 @@ import api, { getApiErrorMessage } from '@/api'
 import { parseHourOfDay } from '@/utils/hour-of-day'
 import { normalizeNotificationTemplates } from '@/utils/notification-template'
 import { createRequestGuard } from '@/utils/request-guard'
+import { DEFAULT_STEAL_FREQUENCY_TIER, normalizeStealFrequencyTier } from '@/utils/steal-frequency'
 
 export interface MilkTeaSeedPolicy {
   targetSeedIds: number[]
@@ -167,6 +168,9 @@ export interface FriendQuietHoursConfig {
   continueFarm?: boolean
 }
 
+/** 偷菜频率档位：决定好友摘要校准周期（relaxed 15 分钟 / standard 8 分钟 / eager 3 分钟）。 */
+export type StealFrequencyTier = 'relaxed' | 'standard' | 'eager'
+
 export interface OfflineConfig {
   templates?: import('@/utils/notification-template').NotificationTemplates
   events?: Record<'account_offline' | 'friend_crop_forecast' | 'friend_crop_mature', string[]>
@@ -236,6 +240,8 @@ export interface SettingsState {
   prioritize2x2Crops: boolean
   intervals: IntervalsConfig
   friendQuietHours: FriendQuietHoursConfig
+  /** 偷菜频率档位：好友摘要校准周期档位。 */
+  stealFrequencyTier: StealFrequencyTier
   automation: AutomationConfig
   /** 微信定时刷新重登（按账号保存） */
   autoCodeRefresh: AutoCodeRefreshConfig
@@ -272,6 +278,7 @@ type SaveableSettingsKey
     | 'prioritize2x2Crops'
     | 'intervals'
     | 'friendQuietHours'
+    | 'stealFrequencyTier'
     | 'automation'
     | 'stealDelaySeconds'
     | 'plantOrderRandom'
@@ -302,6 +309,7 @@ const SAVEABLE_SETTINGS_KEYS: SaveableSettingsKey[] = [
   'prioritize2x2Crops',
   'intervals',
   'friendQuietHours',
+  'stealFrequencyTier',
   'automation',
   'stealDelaySeconds',
   'plantOrderRandom',
@@ -379,6 +387,7 @@ function createDefaultSettings(): SettingsState {
     prioritize2x2Crops: true,
     intervals: {},
     friendQuietHours: { enabled: false, start: '23:00', end: '07:00', continueFarm: true },
+    stealFrequencyTier: DEFAULT_STEAL_FREQUENCY_TIER,
     automation: {},
     autoCodeRefresh: { enabled: false, intervalMinutes: 60 },
     friendMonitor: createDefaultFriendMonitor(),
@@ -444,6 +453,7 @@ export const useSettingStore = defineStore('setting', () => {
         ...defaults.friendQuietHours,
         ...(cloneValue(data.friendQuietHours) || {}),
       },
+      stealFrequencyTier: normalizeStealFrequencyTier(data.stealFrequencyTier),
       automation: cloneValue(data.automation || defaults.automation),
       // 当前 fork 的 autoCodeRefresh 是微信定时刷新（enabled/intervalMinutes）；
       // 兼容旧快照的 offlineEnabled/offlineDelaySeconds，避免切号后字段错位。
