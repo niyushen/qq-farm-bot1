@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { ReleasesSummary, RollbackReleaseItem } from '@/components/settings/ReleaseRollbackPanel.vue'
+import type { PushChannelChange } from '@/stores/setting'
 import type { Redemption } from '@/stores/user'
+import type { StealFrequencyTier } from '@/utils/steal-frequency'
 import { NButton } from 'naive-ui/es/button'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -12,19 +14,20 @@ import AccountFeatureSettings from '@/components/settings/AccountFeatureSettings
 import AccountManagementPanel from '@/components/settings/AccountManagementPanel.vue'
 import FriendApplyTab from '@/components/settings/FriendApplyTab.vue'
 import OfflineReminderCard from '@/components/settings/OfflineReminderCard.vue'
+import PushChannelsManager from '@/components/settings/PushChannelsManager.vue'
 import ReleaseRollbackPanel from '@/components/settings/ReleaseRollbackPanel.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
+import { useUnsavedEditGuard } from '@/composables/useUnsavedEditGuard'
 import { useAccountStore } from '@/stores/account'
 import { useAppUpdateStore } from '@/stores/app-update'
-import { useSettingStore } from '@/stores/setting'
+import { getPushChannelLabel, isPushChannelConfigured, normalizeOfflineConfig, useSettingStore, validateDingTalkWebhook } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
 import { formatExpiresAt, formatRemaining, useUserStore } from '@/stores/user'
 import { parseHourOfDay } from '@/utils/hour-of-day'
-import type { StealFrequencyTier } from '@/utils/steal-frequency'
 import { normalizeStealFrequencyTier } from '@/utils/steal-frequency'
 import AdminPanel from '@/views/AdminPanel.vue'
 
@@ -329,6 +332,11 @@ const localStrategySettings = ref({
   stealFrequencyTier: 'standard' as StealFrequencyTier,
 })
 
+// 已保存快照：用于判断是否存在未保存的策略 / 自动化 / 通知草稿。
+const savedStrategySnapshot = ref('')
+const savedAutomationSnapshot = ref('')
+const savedOfflineSnapshot = ref('')
+
 const plantingStrategyOptions = [
   { label: '优先种植种子', value: 'preferred' },
   { label: '最高等级作物', value: 'level' },
@@ -371,6 +379,7 @@ function syncLocalStrategySettings() {
       },
       stealFrequencyTier: normalizeStealFrequencyTier(settings.value.stealFrequencyTier),
     }))
+    savedStrategySnapshot.value = JSON.stringify(localStrategySettings.value)
   }
 }
 
@@ -386,6 +395,9 @@ async function loadStrategyData(accountId = currentAccountId.value) {
 }
 
 watch(currentAccountId, (accountId) => {
+  savedOfflineSnapshot.value = ''
+  savedAutomationSnapshot.value = ''
+  savedStrategySnapshot.value = ''
   automationSaving.value = false
   if (accountId)
     loadStrategyData(accountId)
@@ -564,6 +576,7 @@ function syncLocalAutomationSettings() {
     localAutomationSettings.value.autoAcceptHarvestStealEnabled = settings.value.autoAcceptHarvestStealEnabled ?? true
     localAutomationSettings.value.autoAcceptHarvestStealHarvest = settings.value.autoAcceptHarvestStealHarvest ?? 8
     localAutomationSettings.value.autoAcceptHarvestStealSteal = settings.value.autoAcceptHarvestStealSteal ?? 1
+    savedAutomationSnapshot.value = JSON.stringify(localAutomationSettings.value)
   }
 }
 
@@ -662,23 +675,10 @@ const passwordForm = ref({
   confirm: '',
 })
 
-const localOffline = ref({
-  channel: 'webhook',
-  endpoint: '',
-  token: '',
-  secret: '',
-  title: '',
-  msg: '',
-  offlineDeleteSec: 0,
-  smtpHost: '',
-  smtpPort: 465,
-  smtpUser: '',
-  smtpPass: '',
-  senderName: '',
-  recipientEmail: '',
-  emailContent: '',
-  useGlobalMailer: false,
-})
+const localOffline = ref(normalizeOfflineConfig())
+const hasActivePushChannel = computed(() =>
+  localOffline.value.channels.some(c => c.enabled),
+)
 
 // 管理员是否已配置好全局邮件服务（用户勾选后免填 SMTP 账号密码）
 const globalMailerAvailable = computed(() => settingStore.settings?.globalMailer?.available === true)
@@ -742,64 +742,46 @@ function openChannelDocs() {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-function syncLocalOfflineSettings() {
-  if (settings.value?.offlineReminder) {
-    const saved = JSON.parse(JSON.stringify(settings.value.offlineReminder))
-    const next = {
-      channel: 'webhook',
-      endpoint: '',
-      token: '',
-      secret: '',
-      title: '',
-      msg: '',
-      offlineDeleteSec: 0,
-      smtpHost: '',
-      smtpPort: 465,
-      smtpUser: '',
-      smtpPass: '',
-      senderName: '',
-      recipientEmail: '',
-      emailContent: '',
-      useGlobalMailer: false,
-      ...saved,
-    }
-
-    if (String(next.channel || '').trim().toLowerCase() === 'dingtalk') {
-      const legacyToken = String(next.token || '').trim()
-      if (!String(next.endpoint || '').trim() && legacyToken) {
-        next.endpoint = /^https?:\/\//i.test(legacyToken)
-          ? legacyToken
-          : `https://oapi.dingtalk.com/robot/send?access_token=${encodeURIComponent(legacyToken)}`
-      }
-      next.token = ''
-    }
-
-    localOffline.value = next
-  }
+function getOfflineGeneralSnapshot(cfg = localOffline.value): string {
+  return JSON.stringify({
+    notificationTypes: cfg.notificationTypes,
+    title: cfg.title,
+    msg: cfg.msg,
+    offlineDeleteSec: cfg.offlineDeleteSec,
+    // 本地 SMTP 草稿也要纳入脏检查，避免切账号/渠道保存时丢失未保存内容。
+    channel: cfg.channel,
+    endpoint: cfg.endpoint,
+    token: cfg.token,
+    secret: cfg.secret,
+    smtpHost: cfg.smtpHost,
+    smtpPort: cfg.smtpPort,
+    smtpUser: cfg.smtpUser,
+    smtpPass: cfg.smtpPass,
+    senderName: cfg.senderName,
+    recipientEmail: cfg.recipientEmail,
+    emailContent: cfg.emailContent,
+    useGlobalMailer: cfg.useGlobalMailer,
+  })
 }
 
-function validateDingTalkWebhook(): string {
-  if (!isDingTalkChannel.value)
-    return ''
-
-  const endpoint = String(localOffline.value.endpoint || '').trim()
-  if (!endpoint)
-    return '请填写钉钉机器人设置页提供的完整 Webhook 地址'
-
-  try {
-    const url = new URL(endpoint)
-    const isOfficialWebhook = url.protocol === 'https:'
-      && url.hostname.toLowerCase() === 'oapi.dingtalk.com'
-      && url.pathname === '/robot/send'
-      && !!url.searchParams.get('access_token')
-    if (!isOfficialWebhook)
-      return '钉钉 Webhook 地址格式不正确，请从群机器人设置页重新复制'
+function syncLocalOfflineSettings(force = false) {
+  if (!settings.value?.offlineReminder)
+    return
+  const next = normalizeOfflineConfig(settings.value.offlineReminder)
+  if (!force && savedOfflineSnapshot.value && getOfflineGeneralSnapshot(localOffline.value) !== savedOfflineSnapshot.value) {
+    // 通知类型/标题/SMTP 草稿未保存时，只回填服务端已确认的渠道列表。
+    localOffline.value = {
+      ...localOffline.value,
+      channel: next.channel,
+      endpoint: next.endpoint,
+      token: next.token,
+      secret: next.secret,
+      channels: next.channels,
+    }
+    return
   }
-  catch {
-    return '钉钉 Webhook 地址格式不正确，请从群机器人设置页重新复制'
-  }
-
-  return ''
+  localOffline.value = next
+  savedOfflineSnapshot.value = getOfflineGeneralSnapshot(next)
 }
 
 // 只监听下线提醒本身：保存功能模块设置会整体更新 settings，
@@ -823,7 +805,9 @@ function validateOfflineForm(): string {
       return '请填写收件人邮箱'
     return ''
   }
-  return validateDingTalkWebhook()
+  if (isDingTalkChannel.value)
+    return validateDingTalkWebhook(localOffline.value.endpoint)
+  return ''
 }
 
 async function handleChangePassword() {
@@ -861,6 +845,19 @@ async function handleChangePassword() {
   }
 }
 
+async function handleSaveChannel(change: PushChannelChange, onDone: (ok: boolean) => void) {
+  offlineSaving.value = true
+  try {
+    const result = await settingStore.saveOfflineConfig(change)
+    if (!result.ok)
+      showAlert(`保存推送渠道失败: ${result.error || '未知错误'}`, 'danger')
+    onDone(result.ok)
+  }
+  finally {
+    offlineSaving.value = false
+  }
+}
+
 async function handleSaveOffline() {
   const validationError = validateOfflineForm()
   if (validationError) {
@@ -870,9 +867,11 @@ async function handleSaveOffline() {
 
   offlineSaving.value = true
   try {
+    // 本地表单包含 SMTP 字段和单渠道草稿；上游通用字段用于通知类型与标题。
     const res = await settingStore.saveOfflineConfig(localOffline.value)
 
     if (res.ok) {
+      syncLocalOfflineSettings(true)
       showAlert('下线提醒设置已保存', 'primary')
     }
     else {
@@ -890,12 +889,30 @@ async function handleTestOffline() {
     showAlert(validationError, 'danger')
     return
   }
+  // SMTP 使用当前草稿测试；pushoo 支持「已启用渠道」和当前单渠道草稿两条路径。
+  const hasSingleDraft = isPushChannelConfigured({
+    channel: localOffline.value.channel,
+    endpoint: localOffline.value.endpoint,
+    token: localOffline.value.token,
+  })
+  if (!isSmtpChannel.value && !hasActivePushChannel.value && !hasSingleDraft) {
+    showAlert('请先配置并启用至少一个推送渠道', 'danger')
+    return
+  }
 
   offlineTesting.value = true
   try {
-    const { data } = await api.post('/api/settings/offline-reminder/test', localOffline.value)
+    const payload = isSmtpChannel.value || hasSingleDraft
+      ? localOffline.value
+      : { title: localOffline.value.title, msg: localOffline.value.msg }
+    const { data } = await api.post('/api/settings/offline-reminder/test', payload)
     if (data?.ok) {
-      showAlert('测试消息发送成功', 'primary')
+      const failed = Array.isArray(data.data) ? data.data.filter((item: { ok: boolean }) => !item.ok) : []
+      const message = data.message || '测试消息发送成功'
+      if (failed.length)
+        showAlert(`${message}。${failed.map((item: { channel: string, msg: string }) => `${getPushChannelLabel(item.channel)}：${item.msg}`).join('；')}`, 'danger')
+      else
+        showAlert(message, 'primary')
     }
     else {
       showAlert(`测试失败: ${getApiErrorMessage(data, '未知错误')}`, 'danger')
@@ -913,6 +930,8 @@ async function handleTestOffline() {
 const systemConfigSaving = ref(false)
 const systemConfigLoading = ref(false)
 const loginSettingsSaving = ref(false)
+const savedSystemConfigSnapshot = ref('')
+const savedLoginSettingsSnapshot = ref('')
 
 const defaultDeviceInfo = {
   os: 'Windows',
@@ -1026,6 +1045,8 @@ async function loadSystemConfig() {
       defaultSystemConfig.value = normalizeSystemConfig(data.data.default, defaultSystemConfig.value)
       localSystemConfig.value = normalizeSystemConfig(data.data.saved || data.data.default, defaultSystemConfig.value)
       localLoginSettings.value = normalizeLoginSettings(data.data.loginSettings)
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
+      savedLoginSettingsSnapshot.value = JSON.stringify(localLoginSettings.value)
     }
   }
   catch (e) {
@@ -1047,6 +1068,7 @@ async function handleSaveLoginSettings() {
     const { data } = await api.post('/api/settings/login-config', localLoginSettings.value)
     if (data?.ok) {
       localLoginSettings.value = normalizeLoginSettings(data.data)
+      savedLoginSettingsSnapshot.value = JSON.stringify(localLoginSettings.value)
     }
     showAlert(data?.ok ? '登录设置已保存' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
   }
@@ -1064,6 +1086,8 @@ async function handleSaveSystemConfig() {
     localSystemConfig.value.clientVersion = localSystemConfig.value.deviceInfo.clientVersion
     localSystemConfig.value.os = localSystemConfig.value.deviceInfo.os
     const { data } = await api.post('/api/settings/system-config', localSystemConfig.value)
+    if (data?.ok)
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
     showAlert(data?.ok ? '系统配置已保存，连接参数在下次登录时生效' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
   }
   catch (e: any) {
@@ -1081,6 +1105,7 @@ async function handleResetSystemConfig() {
     if (data?.ok) {
       localSystemConfig.value = normalizeSystemConfig(data.data.saved, defaultSystemConfig.value)
       selectedPresetId.value = ''
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
       showAlert('系统配置已重置，连接参数在下次登录时生效', 'primary')
     }
     else {
@@ -1094,6 +1119,28 @@ async function handleResetSystemConfig() {
     systemConfigSaving.value = false
   }
 }
+const isSystemConfigDirty = computed(() =>
+  Boolean(savedSystemConfigSnapshot.value)
+  && JSON.stringify(localSystemConfig.value) !== savedSystemConfigSnapshot.value,
+)
+const isLoginSettingsDirty = computed(() =>
+  Boolean(savedLoginSettingsSnapshot.value)
+  && JSON.stringify(localLoginSettings.value) !== savedLoginSettingsSnapshot.value,
+)
+const isOfflineDirty = computed(() =>
+  Boolean(savedOfflineSnapshot.value)
+  && getOfflineGeneralSnapshot(localOffline.value) !== savedOfflineSnapshot.value,
+)
+const isPasswordFormDirty = computed(() => Boolean(passwordForm.value.old || passwordForm.value.new || passwordForm.value.confirm))
+const hasUnsavedSettings = computed(() =>
+  (Boolean(savedStrategySnapshot.value) && JSON.stringify(localStrategySettings.value) !== savedStrategySnapshot.value)
+  || (Boolean(savedAutomationSnapshot.value) && JSON.stringify(localAutomationSettings.value) !== savedAutomationSnapshot.value)
+  || isSystemConfigDirty.value
+  || isLoginSettingsDirty.value
+  || isOfflineDirty.value
+  || isPasswordFormDirty.value,
+)
+useUnsavedEditGuard(hasUnsavedSettings)
 
 // ==================== 版本更新与回滚（当前 fork 独有） ====================
 interface IncomingCommitItem {
@@ -1480,6 +1527,48 @@ onBeforeUnmount(() => {
               保存通知设置
             </BaseButton>
           </div>
+
+          <section class="farm-card rounded-lg p-4">
+            <div class="mb-4 flex items-start gap-3">
+              <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600 dark:bg-green-900/25 dark:text-green-400">
+                <span class="i-carbon-notification text-xl" />
+              </div>
+              <div>
+                <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                  通知类型与推送渠道
+                </h4>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  选择需要推送的事件；神秘商人提醒还需在对应账号的「自动控制」中开启。
+                </p>
+              </div>
+            </div>
+
+            <fieldset v-if="localOffline.notificationTypes" class="min-w-0">
+              <legend class="notification-type-label mb-3">
+                通知类型
+              </legend>
+              <div class="flex flex-wrap gap-2">
+                <div class="notification-type-option">
+                  <BaseSwitch v-model="localOffline.notificationTypes.offline" label="账号下线" />
+                </div>
+                <div class="notification-type-option flex-wrap justify-between gap-x-3 gap-y-2" role="group" aria-labelledby="notification-merchant-label">
+                  <span id="notification-merchant-label" class="notification-type-label">神秘商人</span>
+                  <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <BaseSwitch v-model="localOffline.notificationTypes.mysteryArrival" label="到货" />
+                    <BaseSwitch v-model="localOffline.notificationTypes.mysteryPurchase" label="自动购买" />
+                  </div>
+                </div>
+              </div>
+            </fieldset>
+
+            <PushChannelsManager
+              class="mt-4"
+              :config="localOffline"
+              :saving="offlineSaving || settingStore.supportsPushChannels === null"
+              :supports-channels="settingStore.supportsPushChannels !== false"
+              @save-channel="handleSaveChannel"
+            />
+          </section>
 
           <OfflineReminderCard
             v-model:config="localOffline"
@@ -2294,6 +2383,26 @@ onBeforeUnmount(() => {
     padding: 8px 10px;
     white-space: nowrap;
   }
+}
+
+/* ==================== 通知类型（上游 PR #188） ==================== */
+.notification-type-option {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  flex: 1 1 auto;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-control);
+  background: color-mix(in srgb, var(--ui-surface-strong) 58%, transparent);
+}
+
+.notification-type-label {
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: var(--fw-600);
+  line-height: 20px;
 }
 
 /* ==================== 版本更新与回滚（当前 fork 独有） ==================== */

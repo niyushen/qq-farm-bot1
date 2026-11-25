@@ -181,10 +181,11 @@ const isSoftRuntimeError = (err: any): boolean => {
 
 function isGatewayProtocolError(err: any): boolean {
     const message = String(typeof err === 'string' ? err : err?.message || '').trim();
+    const hasServicePrefix = /^(?:[\w-]+\.)+[\w-]+/.test(message);
     return String(err?.name || '') === 'GatewayError'
         || typeof err?.errorMessage === 'string'
         || typeof err?.error_message === 'string'
-        || /^(?:[\w-]+\.)+[\w-]+(?:\s+.*?)?\bcode=\d+(?:\s|$)/.test(message);
+        || (hasServicePrefix && /\bcode=\d+\b/.test(message));
 }
 
 function getProtocolErrorMessage(err: any): string {
@@ -193,7 +194,9 @@ function getProtocolErrorMessage(err: any): string {
 
     const message = String(typeof err === 'string' ? err : err?.message || '').trim();
     if (!isGatewayProtocolError(err)) return '';
-    return message.match(/\bcode=\d+\b\s*(.*)$/)?.[1]?.trim() || '';
+    const codeMatch = message.match(/\bcode=\d+\b/);
+    if (!codeMatch) return '';
+    return message.slice((codeMatch.index ?? 0) + codeMatch[0].length).trim();
 }
 
 function handleApiError(res: Response, err: any): void {
@@ -255,13 +258,9 @@ function buildKnownFriendGidSettings(accountId: string): {
     friendsListCacheTtlSec: number;
 } {
     return {
-        knownFriendGids: store.getKnownFriendGids ? store.getKnownFriendGids(accountId) : [],
-        knownFriendGidSyncCooldownSec: store.getKnownFriendGidSyncCooldownSec
-            ? store.getKnownFriendGidSyncCooldownSec(accountId)
-            : 600,
-        friendsListCacheTtlSec: store.getFriendsListCacheTtlSec
-            ? store.getFriendsListCacheTtlSec(accountId)
-            : 60,
+        knownFriendGids: store.getKnownFriendGids(accountId),
+        knownFriendGidSyncCooldownSec: store.getKnownFriendGidSyncCooldownSec(accountId),
+        friendsListCacheTtlSec: store.getFriendsListCacheTtlSec(accountId),
     };
 }
 

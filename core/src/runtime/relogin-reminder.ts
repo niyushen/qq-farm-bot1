@@ -1,4 +1,7 @@
-export {};
+import type { PushNotification } from '../config/notification-types';
+import { normalizeNotificationTypes } from '../config/notification-types';
+import { readPushChannels } from '../config/push-channels';
+const { sendPushChannels } = require('../services/push');
 
 interface ReloginReminderOptions {
     store: any;
@@ -12,7 +15,20 @@ interface OfflineReminderPayload {
     accountName?: string;
     reason?: string;
     offlineMs?: number;
+    username?: string;
 }
+
+type PushPayload = {
+    candidates?: PushNotification[];
+    title?: string;
+    content?: string;
+    accountId?: string;
+    accountName?: string;
+    reason?: string;
+    offlineMs?: number;
+    username?: string;
+    logLabel?: string;
+};
 
 function createReloginReminderService(options: ReloginReminderOptions) {
     const { store, sendPushooMessage, log } = options;
@@ -47,61 +63,66 @@ function createReloginReminderService(options: ReloginReminderOptions) {
         return sec === 0 ? Infinity : sec * 1000;
     }
 
-    function resolvePushChannel(username: string): { ok: true; channel: string; endpoint: string; token: string; secret: string; cfg: any } | { ok: false; reason: string } {
-        const cfg = store.getOfflineReminder ? store.getOfflineReminder(username) : null;
+    function resolveSmtpConfig(cfg: any): { ok: true; cfg: any } | { ok: false; reason: string } {
         if (!cfg) return { ok: false, reason: '未找到下线提醒配置' };
-
         const channel = String(cfg.channel || '').trim().toLowerCase();
-        const endpoint = String(cfg.endpoint || '').trim();
-        const token = String(cfg.token || '').trim();
-        const secret = String(cfg.secret || '').trim();
-        if (!channel) return { ok: false, reason: '下线提醒配置不完整' };
-        if (channel === 'smtp') {
-            // SMTP 渠道：勾选「使用管理员配置的邮件服务」时免校验 SMTP 账号密码
-            const useGlobalMailer = cfg.useGlobalMailer === true;
-            if (!useGlobalMailer) {
-                if (!String(cfg.smtpHost || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写服务器地址' };
-                if (!String(cfg.smtpUser || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写邮箱账号' };
-                if (!String(cfg.smtpPass || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写授权码' };
-            }
-            if (!String(cfg.recipientEmail || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写收件人邮箱' };
-            return { ok: true, channel, endpoint, token, secret, cfg };
+        if (channel !== 'smtp') return { ok: false, reason: '当前渠道不是 SMTP' };
+        // 勾选「使用管理员配置的邮件服务」时免校验 SMTP 账号密码
+        if (cfg.useGlobalMailer !== true) {
+            if (!String(cfg.smtpHost || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写服务器地址' };
+            if (!String(cfg.smtpUser || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写邮箱账号' };
+            if (!String(cfg.smtpPass || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写授权码' };
         }
-        if (channel === 'webhook' && !endpoint) return { ok: false, reason: 'Webhook 渠道未设置接口地址' };
-        if (channel === 'dingtalk' && !endpoint && !token) return { ok: false, reason: '钉钉渠道未设置 Webhook 地址' };
-        if (channel !== 'webhook' && channel !== 'dingtalk' && !token) return { ok: false, reason: '下线提醒渠道未设置 Token' };
-        return { ok: true, channel, endpoint, token, secret, cfg };
+        if (!String(cfg.recipientEmail || '').trim()) return { ok: false, reason: 'SMTP 渠道未填写收件人邮箱' };
+        return { ok: true, cfg };
     }
 
-    async function sendConfiguredPush(payload: { title?: string; content?: string; accountId?: string; accountName?: string; reason?: string; offlineMs?: number; logLabel?: string } = {}): Promise<void> {
+    async function sendConfiguredPush(payload: PushPayload = {}): Promise<void> {
         const accountId = String(payload.accountId || '').trim();
         const accountName = String(payload.accountName || '').trim();
-        const baseTitle = String(payload.title || '').trim();
-        const baseContent = String(payload.content || '').trim();
+        const username = resolveUsername(accountId, String(payload.username || ''));
+        const cfg = store.getOfflineReminder ? store.getOfflineReminder(username) : null;
+        const enabled = normalizeNotificationTypes(cfg?.notificationTypes);
+        // 同一轮仅发送第一条允许的提醒，优先保留原有的合并购买消息。
+        const notification = payload.candidates
+            ? payload.candidates.find(item => item && enabled[item.type] === true)
+            : payload;
+        if (!notification) return;
+        const baseTitle = String(notification.title || '').trim();
+        const baseContent = String(notification.content || '').trim();
+        const title = accountName ? `${baseTitle} ${accountName}` : baseTitle;
         const logLabel = String(payload.logLabel || '事件提醒').trim() || '事件提醒';
         try {
-            // 按账号归属人读取其自己的下线提醒配置（未配置时回落全局）
-            const username = resolveUsername(accountId, String((payload as any).username || ''));
-            const channelCfg = resolvePushChannel(username);
-            if (channelCfg.ok === false) {
-                log('错误', channelCfg.reason);
+            if (!cfg) {
+                log('错误', '未找到下线提醒配置');
+                return;
+            }
+            if (!title || !baseContent) {
+                log('错误', '推送标题或内容为空');
                 return;
             }
 
-            if (channelCfg.channel === 'smtp') {
-                // SMTP 渠道：邮件主题/正文对齐源项目结构（账号名、原因、离线时长）
-                const cfg = channelCfg.cfg || {};
-                const emailContent = String(cfg.emailContent || '').trim() || baseContent;
-                let content = `${accountName ? `${accountName}\n` : ''}${emailContent}`;
-                if (payload.reason) content += `\n原因: ${payload.reason}`;
-                const minutes = Math.floor((Number(payload.offlineMs) || 0) / 60000);
-                if (minutes > 0) content += `\n离线时长: ${minutes} 分钟`;
-                if (!content.trim()) {
-                    log('错误', 'SMTP 邮件内容为空');
+            // 本地 SMTP 渠道：按用户配置发送邮件；用户自定义邮件正文只用于下线提醒。
+            if (String(cfg.channel || '').trim().toLowerCase() === 'smtp') {
+                const smtpCfg = resolveSmtpConfig(cfg);
+                if (smtpCfg.ok === false) {
+                    log('错误', smtpCfg.reason);
                     return;
                 }
                 if (!sendSmtpEmail) {
                     log('错误', 'SMTP 邮件发送组件不可用');
+                    return;
+                }
+                let content = baseContent;
+                if (!payload.candidates) {
+                    const template = String(cfg.emailContent || '').trim() || baseContent;
+                    content = `${accountName ? `${accountName}\n` : ''}${template}`;
+                    if (payload.reason) content += `\n原因: ${payload.reason}`;
+                    const minutes = Math.floor((Number(payload.offlineMs) || 0) / 60000);
+                    if (minutes > 0) content += `\n离线时长: ${minutes} 分钟`;
+                }
+                if (!content.trim()) {
+                    log('错误', 'SMTP 邮件内容为空');
                     return;
                 }
                 // 勾选「使用管理员配置的邮件服务」时复用全局 SMTP
@@ -130,7 +151,7 @@ function createReloginReminderService(options: ReloginReminderOptions) {
                     smtpPass,
                     senderName,
                     recipientEmail: cfg.recipientEmail,
-                    subject: accountName ? `${baseTitle} ${accountName}` : baseTitle,
+                    subject: title,
                     content,
                 });
                 if (ret?.ok) {
@@ -141,24 +162,16 @@ function createReloginReminderService(options: ReloginReminderOptions) {
                 return;
             }
 
-            const title = accountName ? `${baseTitle} ${accountName}` : baseTitle;
-            const content = baseContent;
-            if (!title || !content) {
-                log('错误', '推送标题或内容为空');
+            const targets = readPushChannels(cfg).filter(entry => entry.enabled);
+            if (!targets.length) {
+                log('错误', '未启用已配置的推送渠道');
                 return;
             }
-            const result = await sendPushooMessage({
-                channel: channelCfg.channel,
-                endpoint: channelCfg.endpoint,
-                token: channelCfg.token,
-                secret: channelCfg.secret,
-                title,
-                content,
-            });
-            if (result?.ok) {
-                log('系统', `${logLabel}发送成功: ${accountName || accountId || title}`);
-            } else {
-                log('错误', `${logLabel}发送失败: ${result?.msg || 'unknown'}`);
+            const results = await sendPushChannels(targets, { title, content: baseContent }, sendPushooMessage);
+            for (const result of results) {
+                const suffix = targets.length > 1 ? `（${result.channel}）` : '';
+                if (result.ok) log('系统', `${logLabel}发送成功${suffix}: ${accountName || accountId || title}`);
+                else log('错误', `${logLabel}发送失败${suffix}: ${result.msg}`);
             }
         } catch (e: any) {
             log('错误', `${logLabel}发送异常: ${e.message}`);
@@ -170,15 +183,14 @@ function createReloginReminderService(options: ReloginReminderOptions) {
             const accountId = String(payload.accountId || '').trim();
             const accountName = String(payload.accountName || '').trim();
             const reason = String(payload.reason || 'unknown');
-            const username = resolveUsername(accountId, String((payload as any).username || ''));
-            log('系统', `触发下线提醒: 账号=${accountName || accountId}, 原因=${reason}`, { accountId, accountName, reason, username });
-
+            const username = resolveUsername(accountId, String(payload.username || ''));
             const cfg = store.getOfflineReminder ? store.getOfflineReminder(username) : null;
             if (!cfg) {
                 log('错误', `未找到下线提醒配置: 用户=${username || '(空)'}`);
                 return;
             }
-
+            if (cfg.notificationTypes?.offline === false) return;
+            log('系统', `触发下线提醒: 账号=${accountName || accountId}, 原因=${reason}`, { accountId, accountName, reason, username });
             const baseTitle = String(cfg.title || '').trim();
             const content = String(cfg.msg || '').trim();
             if (!baseTitle || !content) {
@@ -193,6 +205,7 @@ function createReloginReminderService(options: ReloginReminderOptions) {
                 accountName,
                 reason,
                 offlineMs: Number(payload.offlineMs) || 0,
+                username,
                 logLabel: '下线提醒',
             });
         } catch (e: any) {

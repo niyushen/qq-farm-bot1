@@ -1,4 +1,5 @@
-export {};
+import type { OfflineReminderChannel } from '../types/config';
+import { isPushChannelConfigured, PUSHOO_CHANNELS } from '../config/push-channels';
 /**
  * 推送接口封装（基于 pushoo）
  */
@@ -151,10 +152,14 @@ async function sendPushooMessage(payload: any = {}): Promise<{ ok: boolean; code
             : await pushoo(channel, request);
 
     const raw: any = (result && typeof result === 'object') ? result : { data: result };
-    const hasError: boolean = !!(raw && raw.error);
-    const code: string = String(raw.code || raw.errcode || (hasError ? 'error' : 'ok'));
-    const message: string = String(raw.msg || raw.errmsg || raw.message || (hasError ? (raw.error.message || 'push failed') : 'ok'));
-    const ok: boolean = !hasError && (code === 'ok' || code === '0' || code === '' || String(raw.status || '').toLowerCase() === 'success');
+    const hasError = Boolean(raw.error) || raw.ok === false || raw.success === false || raw.status === 'failed';
+    const code = String(raw.code ?? raw.errcode ?? raw.retcode ?? raw.error_code ?? (hasError ? 'error' : 'ok'));
+    const accepted = code === 'ok' || code === '0'
+        || (code === '200' && ['pushplus', 'pushplushxtrip', 'bark'].includes(channel))
+        || (channel === 'wxpusher' && code === '1000');
+    const ok = !hasError && accepted;
+    const message = String(raw.msg || raw.errmsg || raw.message || raw.description || raw.error?.message
+        || (ok ? 'ok' : `推送失败（${code}）`));
 
     return {
         ok,
@@ -164,8 +169,41 @@ async function sendPushooMessage(payload: any = {}): Promise<{ ok: boolean; code
     };
 }
 
+function pushChannelError(entry: OfflineReminderChannel, required: boolean): string {
+    if (entry.channel === 'smtp') return '';
+    if (!PUSHOO_CHANNELS.has(entry.channel)) return '不支持的推送渠道';
+    if (required && !isPushChannelConfigured(entry)) {
+        if (entry.channel === 'webhook') return 'Webhook 渠道需要填写接口地址';
+        if (entry.channel === 'dingtalk') return '钉钉渠道需要填写 Webhook 地址';
+        return '当前推送渠道需要填写 Token';
+    }
+    if (entry.channel === 'dingtalk' && entry.endpoint) {
+        try {
+            if (!/^https:\/\//i.test(entry.endpoint)) return '钉钉 Webhook 地址格式无效';
+            buildDingTalkWebhook(entry.endpoint, '');
+        } catch (error: any) {
+            return error.message;
+        }
+    }
+    return '';
+}
+
+async function sendPushChannels(
+    channels: OfflineReminderChannel[], message: { title: string; content: string }, send = sendPushooMessage,
+) {
+    return Promise.all(channels.map(async ({ channel, endpoint, token, secret }) => {
+        try {
+            const result = await send({ channel, endpoint, token, secret, ...message });
+            return { ...result, channel };
+        } catch (error) {
+            return { channel, ok: false, msg: error instanceof Error ? error.message : String(error) };
+        }
+    }));
+}
+
 /**
  * 通过 SMTP 发送邮件（用于下线提醒等推送）
+ * @param options SMTP 邮件配置
  * @param options.smtpHost 必填 SMTP 服务器地址
  * @param options.smtpPort SMTP 端口（默认 465，465 使用 SSL）
  * @param options.smtpUser 必填 邮箱账号（发件人）
@@ -174,7 +212,7 @@ async function sendPushooMessage(payload: any = {}): Promise<{ ok: boolean; code
  * @param options.recipientEmail 必填 收件人邮箱
  * @param options.subject 必填 邮件主题
  * @param options.content 必填 邮件正文
- * @returns { ok, code, msg, raw }
+ * @returns 邮件发送结果，包含 ok、code、msg 与原始响应
  */
 async function sendSmtpEmail(options: any = {}): Promise<{ ok: boolean; code: string; msg: string; raw: any }> {
     const smtpHost = String(options.smtpHost || '').trim();
@@ -221,6 +259,8 @@ async function sendSmtpEmail(options: any = {}): Promise<{ ok: boolean; code: st
 }
 
 module.exports = {
+    pushChannelError,
+    sendPushChannels,
     buildDingTalkWebhook,
     createDingTalkSign,
     sendMeowMessage,

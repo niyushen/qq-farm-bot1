@@ -13,14 +13,14 @@ export interface OfflineReminderConfig {
   title: string
   msg: string
   offlineDeleteSec: number
-  smtpHost: string
-  smtpPort: number
-  smtpUser: string
-  smtpPass: string
-  senderName: string
-  recipientEmail: string
-  emailContent: string
-  useGlobalMailer: boolean
+  smtpHost?: string
+  smtpPort?: number
+  smtpUser?: string
+  smtpPass?: string
+  senderName?: string
+  recipientEmail?: string
+  emailContent?: string
+  useGlobalMailer?: boolean
 }
 
 defineProps<{

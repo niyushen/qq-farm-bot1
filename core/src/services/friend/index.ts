@@ -9,6 +9,11 @@ export {
 } from './gid-manager';
 
 export {
+    putGoldenBug,
+    runGoldenBugPlacement,
+} from './golden-bug-service';
+
+export {
     claimDueFriends,
     dropFriendMaturityPlans,
     getNextStealDelayMs,
@@ -49,9 +54,5 @@ export {
     getFriendLandsDetail,
     getFriendsList,
     getFriendsListCacheOnly,
+    isFriendsListPartial,
 } from './visit-strategy';
-
-export {
-    putGoldenBug,
-    runGoldenBugPlacement,
-} from './golden-bug-service';

@@ -24,6 +24,9 @@ require.cache[protoPath] = {
                 create: value => value,
                 encode: () => ({ finish: () => Buffer.alloc(0) }),
             },
+            FertilizeReply: {
+                decode: () => ({ land: [] }),
+            },
         },
     },
 };

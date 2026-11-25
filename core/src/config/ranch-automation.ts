@@ -34,6 +34,7 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     // 自动抚摸动物：会消耗好友互动配额，默认关闭由用户按需开启
     ranch_stroke: false,
     ranch_friend_steal: true,
+    ranch_friend_produce: false,
     ranch_friend_clean: true,
     ranch_friend_mosquito: true,
     ranch_task: true,

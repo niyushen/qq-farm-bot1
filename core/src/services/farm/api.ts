@@ -4,7 +4,7 @@ export {};
  */
 
 const protobuf = require('protobufjs');
-const { sendMsgAsync, getUserState } = require('../../utils/network');
+const { sendMsgAsync, getUserState, networkEvents } = require('../../utils/network');
 const { types } = require('../../utils/proto');
 const { toLong, toNum, sleep, randomDelay, log, logWarn, toTimeSec } = require('../../utils/utils');
 // 惰性引入：land-analysis 会回头依赖本模块的施肥接口，顶层 require 会形成循环依赖。
@@ -34,6 +34,12 @@ async function sendPlantRequest(
     return ReplyType.decode(replyBody);
 }
 
+function decodeChangedLands(replyType: any, body: Uint8Array): any {
+    const reply = replyType.decode(body);
+    if (reply.land?.length) networkEvents.emit('ownFarmLandsUpdated', reply.land);
+    return reply;
+}
+
 async function getAllLands(): Promise<any> {
     const forecast = require('../level-forecast');
     const revision = forecast.getLandForecastRevision();
@@ -47,6 +53,7 @@ async function getAllLands(): Promise<any> {
             require('../friend/cheat-detect').recordOwnMaturityHistory(reply.lands);
     }
     catch { /* 采样失败不影响巡田 */ }
+    networkEvents.emit('ownFarmLandsUpdated', reply.lands, true);
     // 更新操作限制
     if (reply.operation_limits && onOperationLimitsUpdate) {
         onOperationLimitsUpdate(reply.operation_limits);
@@ -54,15 +61,15 @@ async function getAllLands(): Promise<any> {
     return reply;
 }
 
-async function harvest(landIds: number[]): Promise<any> {
+async function harvest(landIds: number[], isAll = true): Promise<any> {
     const state = getUserState();
     const body = types.HarvestRequest.encode(types.HarvestRequest.create({
         land_ids: landIds,
         host_gid: toLong(state.gid),
-        is_all: true,
+        is_all: isAll,
     })).finish();
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Harvest', body);
-    return types.HarvestReply.decode(replyBody);
+    return decodeChangedLands(types.HarvestReply, replyBody);
 }
 
 async function waterLand(landIds: number[]): Promise<any> {
@@ -74,7 +81,7 @@ async function farming(landIds: number[], socialEventItemIds: Array<number | str
     const state = getUserState();
     const body = encodeOwnFarmingRequest(landIds, state.gid, socialEventItemIds);
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Farming', body);
-    return types.FarmingReply.decode(replyBody);
+    return decodeChangedLands(types.FarmingReply, replyBody);
 }
 
 /**
@@ -119,7 +126,7 @@ async function fertilizeBatch(landIds: number[], fertilizerId: number): Promise<
         fertilizer_id: toLong(fertilizerId),
     })).finish();
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Fertilize', body);
-    const reply = types.FertilizeReply.decode(replyBody);
+    const reply = decodeChangedLands(types.FertilizeReply, replyBody);
     if (reply.operation_limits && onOperationLimitsUpdate) {
         onOperationLimitsUpdate(reply.operation_limits);
     }
@@ -150,7 +157,8 @@ async function fertilize(landIds: number[], fertilizerId: number = NORMAL_FERTIL
                 land_ids: [toLong(landId)],
                 fertilizer_id: toLong(fertilizerId),
             })).finish();
-            await sendMsgAsync('gamepb.plantpb.PlantService', 'Fertilize', body);
+            const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Fertilize', body);
+            decodeChangedLands(types.FertilizeReply, replyBody);
             successCount++;
         } catch (error) {
             if (isSkippableFertilizeLandError(error)) {
@@ -207,11 +215,12 @@ async function fertilizeOrganicLoop(
                 fertilizer_id: toLong(ORGANIC_FERTILIZER_ID),
             })).finish();
             const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Fertilize', body);
+            // 2×2 催熟需要解码回包校验生长推进；普通模式仅广播地块变化。
+            const reply = decodeChangedLands(types.FertilizeReply, replyBody);
             successCount++;
             if (ripenSize2) {
                 // land-analysis 顶层依赖本模块，这里惰性取阶段判定，避免循环依赖。
                 const { getCurrentPhase } = require('./land-analysis');
-                const reply = types.FertilizeReply.decode(replyBody);
                 const updatedLand = (reply.land || []).find((land: any) => toNum(land && land.id) === toNum(landId));
                 const plant = updatedLand && updatedLand.plant;
                 const phase = plant && getCurrentPhase(plant.phases, false, '', toNum(plant.id));
@@ -253,7 +262,7 @@ async function removePlant(landIds: number[]): Promise<any> {
         land_ids: landIds.map(id => toLong(id)),
     })).finish();
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'RemovePlant', body);
-    return types.RemovePlantReply.decode(replyBody);
+    return decodeChangedLands(types.RemovePlantReply, replyBody);
 }
 
 async function upgradeLand(landId: number): Promise<any> {
@@ -316,6 +325,7 @@ function encodePlantRequest(seedId: number | string, landIds: number[]): Uint8Ar
 }
 
 module.exports = {
+    decodeChangedLands,
     setOperationLimitsCallback,
     sendPlantRequest,
     getAllLands,
