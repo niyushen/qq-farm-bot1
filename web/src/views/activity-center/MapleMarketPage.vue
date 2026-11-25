@@ -7,9 +7,9 @@ import { NTab, NTabs } from 'naive-ui/es/tabs'
 import { storeToRefs } from 'pinia'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
+import ActivityRulesDialog from '@/components/activity/ActivityRulesDialog.vue'
 import MapleMarketCompare from '@/components/activity/MapleMarketCompare.vue'
 import CommerceItemImage from '@/components/commerce/CommerceItemImage.vue'
-import BookOverview from '@/components/illustrated/BookOverview.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useAccountStore } from '@/stores/account'
 import { useToastStore } from '@/stores/toast'
@@ -136,15 +136,6 @@ const shopTitle = computed(() => {
   return name ? `${name}的红薯小铺` : '我的红薯小铺'
 })
 
-const shopCaption = computed(() => {
-  const q = state.value?.quote
-  if (!q)
-    return state.value?.phase === 'settlement' ? '收购已结束，当前可前往兑换商店兑换奖励' : '当前暂无收购报价'
-  const tier = q.tier ? `（${q.tier}）` : ''
-  const boostText = q.boost > 0 ? `分享暴击 +${formatter.format(q.boost)}` : '今日尚未分享暴击'
-  return `基础价 ${formatter.format(q.basePrice)}${tier} · ${boostText}`
-})
-
 const quotaPercent = computed(() => {
   const q = state.value?.quote
   if (!q)
@@ -152,10 +143,11 @@ const quotaPercent = computed(() => {
   return Math.max(0, Math.min(100, (q.remainingQuota / DAILY_QUOTA_CAP) * 100))
 })
 
-const seedText = computed(() => {
-  if (state.value?.seedClaimed)
-    return '今日已领种子'
-  return state.value?.canClaimSeed ? '领取今日种子' : '暂不可领取'
+const commissionHint = computed(() => {
+  const count = state.value?.pendingCommissionCount ?? 0
+  return count > 0
+    ? `${formatter.format(count)} 笔好友成交待领 · 按成交额 2% 分成`
+    : '好友通过你的分享出售蜜薯，你获得 2% 福气币分成'
 })
 
 const saleIncome = computed(() => {
@@ -194,6 +186,18 @@ function limitLabel(limitType: number) {
   if (limitType === 2)
     return '活动限购'
   return '限购'
+}
+
+/** 不能兑换时返回原因；可兑换返回 null。余额不足优先于服务端的不可兑换标记，方便看出还差多少。 */
+function goodsBlock(goods: MarketGoods): { text: string, tone: 'off' | 'short' } | null {
+  if (goods.remaining === 0)
+    return { text: goods.limitType === 1 ? '今日已兑完' : '已兑完', tone: 'off' }
+  const balance = state.value?.coinBalance ?? 0
+  if (goods.price > balance)
+    return { text: `还差 ${formatter.format(goods.price - balance)}`, tone: 'short' }
+  if (!goods.exchangeable)
+    return { text: '暂不可兑', tone: 'off' }
+  return null
 }
 
 function setSaleCount(value: number | null) {
@@ -370,11 +374,18 @@ onUnmounted(() => {
           </p>
         </div>
       </div>
-      <NButton secondary circle :loading="pending === 'read'" :disabled="!currentAccountId || !!pending" title="刷新活动数据" aria-label="刷新活动数据" @click="request()">
-        <template #icon>
-          <span class="i-carbon-renew" />
-        </template>
-      </NButton>
+      <div class="maple-head__actions">
+        <NButton v-if="parsedRules.length" secondary circle title="活动说明" aria-label="查看活动说明" @click="rulesOpen = true">
+          <template #icon>
+            <span class="i-carbon-information" />
+          </template>
+        </NButton>
+        <NButton secondary circle :loading="pending === 'read'" :disabled="!currentAccountId || !!pending" title="刷新活动数据" aria-label="刷新活动数据" @click="request()">
+          <template #icon>
+            <span class="i-carbon-renew" />
+          </template>
+        </NButton>
+      </div>
     </header>
 
     <div class="maple-toolbar">
@@ -414,62 +425,108 @@ onUnmounted(() => {
       <template v-else>
         <!-- Tab 1: 红薯小铺 -->
         <div v-if="activeTab === 'shop'" class="maple-shop">
-          <BookOverview
-            class="maple-shop__overview"
-            :title="shopTitle"
-            icon="i-carbon-store"
-            :badge-value="state.quote ? formatter.format(state.quote.unitPrice) : '—'"
-            badge-label="今日收购价"
-            :caption="shopCaption"
-            :percent="quotaPercent"
-            hint="好友可用接收额度"
-            :progress-text="state.quote ? `${formatter.format(state.quote.remainingQuota)} / ${formatter.format(DAILY_QUOTA_CAP)}` : ''"
-          >
-            <template #actions>
-              <NButton :type="state.canClaimSeed ? 'primary' : 'default'" :secondary="!state.canClaimSeed" :loading="pending === 'claim'" :disabled="!state.canClaimSeed || !!pending" @click="request('claim')">
-                {{ seedText }}
-              </NButton>
-              <NButton v-if="state.phase === 'active'" secondary :disabled="!!pending" @click="activeTab = 'compare'">
-                好友比价
-              </NButton>
-            </template>
-            <span v-if="state.quote?.tier" class="book-chip">基础档：{{ state.quote.tier }}</span>
-            <span v-if="state.quote" class="book-chip">
-              {{ state.quote.boost > 0 ? `分享暴击 +${formatter.format(state.quote.boost)}` : '未分享暴击' }}
-            </span>
-            <span v-if="state.phase === 'active'" class="book-chip-label">
-              每日 24:00 按自家当日最终价自动结算剩余蜜薯
-            </span>
-          </BookOverview>
+          <section class="maple-card maple-quote" aria-labelledby="maple-quote-title">
+            <header class="maple-quote__head">
+              <h3 id="maple-quote-title">
+                <span class="i-carbon-store" aria-hidden="true" />{{ shopTitle }}
+              </h3>
+              <span v-if="state.quote?.tier" class="maple-pill">{{ state.quote.tier }}档</span>
+            </header>
 
-          <section class="maple-card maple-shop__commission">
-            <header class="maple-card__head">
-              <div>
-                <h3>小铺提成与收购记录</h3>
-                <p>好友通过你的分享来出售蜜薯时，你将获得 2% 福气币分红</p>
+            <div v-if="state.quote" class="maple-quote__price">
+              <div class="maple-quote__total">
+                <small>今日收购价</small>
+                <strong>{{ formatter.format(state.quote.unitPrice) }}</strong>
+                <span>福气币 / 个</span>
               </div>
-              <NButton v-if="state.phase === 'active' || state.phase === 'settlement'" secondary :disabled="!!pending" @click="openPurchaseLog">
+              <dl class="maple-quote__formula" aria-label="收购价构成">
+                <span class="maple-quote__op" aria-hidden="true">=</span>
+                <div>
+                  <dt>基础价</dt>
+                  <dd>{{ formatter.format(state.quote.basePrice) }}</dd>
+                </div>
+                <span class="maple-quote__op" aria-hidden="true">+</span>
+                <div :class="{ 'is-empty': state.quote.boost <= 0 }">
+                  <dt>{{ state.quote.boost > 0 ? '分享暴击' : '未分享暴击' }}</dt>
+                  <dd>{{ formatter.format(state.quote.boost) }}</dd>
+                </div>
+              </dl>
+            </div>
+            <p v-else class="maple-quote__empty">
+              {{ state.phase === 'settlement' ? '收购已结束，可前往兑换商店使用福气币' : '当前暂无收购报价' }}
+            </p>
+
+            <div v-if="state.quote && quotaPercent !== null" class="maple-quota">
+              <div class="maple-quota__label">
+                <span>好友剩余可售额度</span>
+                <b>{{ formatter.format(state.quote.remainingQuota) }} / {{ formatter.format(DAILY_QUOTA_CAP) }}</b>
+              </div>
+              <div
+                class="maple-track"
+                role="progressbar"
+                aria-label="好友剩余可售额度"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="Math.round(quotaPercent)"
+              >
+                <span :style="{ width: `${quotaPercent}%` }" />
+              </div>
+            </div>
+
+            <p v-if="state.phase === 'active'" class="maple-quote__note">
+              <span class="i-carbon-time" aria-hidden="true" />每日 24:00 按自家当日最终价自动结算剩余蜜薯
+            </p>
+          </section>
+
+          <section class="maple-card maple-tasks" aria-labelledby="maple-tasks-title">
+            <header class="maple-card__head">
+              <h3 id="maple-tasks-title">
+                小铺事项
+              </h3>
+              <NButton
+                v-if="state.phase === 'active' || state.phase === 'settlement'"
+                quaternary
+                size="small"
+                :disabled="!!pending"
+                @click="openPurchaseLog"
+              >
+                <template #icon>
+                  <span class="i-carbon-receipt" />
+                </template>
                 收购记录
                 <i v-if="state.purchaseLogUnread" class="maple-btn-dot" aria-label="有未读记录" />
               </NButton>
             </header>
-            <div class="maple-commission__body">
-              <div class="maple-commission__metric">
-                <span>待领提成</span>
-                <strong>{{ formatter.format(state.pendingCommissionCoin) }} <small>福气币</small></strong>
-                <em v-if="state.pendingCommissionCount > 0">{{ formatter.format(state.pendingCommissionCount) }} 笔好友成交待领</em>
-                <em v-else>暂无待领提成</em>
-              </div>
-              <NButton
-                :type="state.canClaimCommission ? 'primary' : 'default'"
-                :secondary="!state.canClaimCommission"
-                :loading="pending === 'commission'"
-                :disabled="!state.canClaimCommission || !!pending"
-                @click="request('commission')"
-              >
-                {{ state.canClaimCommission ? `领取提成 (+${formatter.format(state.pendingCommissionCoin)})` : '暂无可领提成' }}
-              </NButton>
-            </div>
+            <ul class="maple-tasks__list">
+              <li class="maple-task">
+                <span class="maple-task__icon" aria-hidden="true"><span class="i-carbon-sprout" /></span>
+                <div class="maple-task__main">
+                  <strong>每日红薯种子</strong>
+                  <small>每天可领一次，种出蜜薯后出售换福气币</small>
+                </div>
+                <span v-if="state.seedClaimed" class="maple-task__done">
+                  <span class="i-carbon-checkmark" aria-hidden="true" />今日已领
+                </span>
+                <NButton v-else-if="state.canClaimSeed" type="primary" size="small" :loading="pending === 'claim'" :disabled="!!pending" @click="request('claim')">
+                  领取
+                </NButton>
+                <span v-else class="maple-task__idle">暂不可领</span>
+              </li>
+              <li class="maple-task">
+                <span class="maple-task__icon" aria-hidden="true"><span class="i-carbon-currency" /></span>
+                <div class="maple-task__main">
+                  <strong>
+                    小铺提成
+                    <em v-if="state.pendingCommissionCoin > 0">+{{ formatter.format(state.pendingCommissionCoin) }}</em>
+                  </strong>
+                  <small>{{ commissionHint }}</small>
+                </div>
+                <NButton v-if="state.canClaimCommission" type="primary" size="small" :loading="pending === 'commission'" :disabled="!!pending" @click="request('commission')">
+                  领取
+                </NButton>
+                <span v-else class="maple-task__idle">暂无待领</span>
+              </li>
+            </ul>
           </section>
 
           <aside class="maple-shop__ops">
@@ -477,58 +534,46 @@ onUnmounted(() => {
               <header class="maple-card__head">
                 <div>
                   <h3 id="maple-cashier-title">
-                    卖给自己小铺
+                    卖给自家小铺
                   </h3>
-                  <p>按自家今日最终收购价出售，不占好友接收额度</p>
+                  <p>按今日收购价结算，不占好友额度</p>
                 </div>
               </header>
-              <dl class="maple-ledger-mini">
-                <div>
-                  <dt>自家收购单价</dt>
-                  <dd>{{ state.quote ? `${formatter.format(state.quote.unitPrice)} 福气币 / 个` : '暂不可售' }}</dd>
-                </div>
-                <div>
-                  <dt>可用蜜薯</dt>
-                  <dd>
-                    {{ formatter.format(state.sellableCropStock) }} 个
-                    <small v-if="state.cropStock > state.sellableCropStock">（背包共 {{ formatter.format(state.cropStock) }}）</small>
-                  </dd>
-                </div>
-              </dl>
               <template v-if="state.quote?.canSell && state.sellableCropStock > 0">
-                <div class="maple-confirm__quantity">
-                  <span>出售数量</span>
+                <div class="maple-cashier__stock">
+                  <span>可卖蜜薯</span>
+                  <b>{{ formatter.format(state.sellableCropStock) }} 个</b>
+                  <small v-if="state.cropStock > state.sellableCropStock">背包共 {{ formatter.format(state.cropStock) }}，其余已锁定</small>
+                </div>
+                <div class="maple-quantity">
                   <NInputNumber
                     :value="saleCount"
                     :min="1"
                     :max="state.sellableCropStock"
                     :disabled="!!pending"
+                    button-placement="both"
                     aria-label="出售数量"
                     @update:value="setSaleCount"
                   />
                   <NButton secondary :disabled="!!pending || saleCount >= state.sellableCropStock" @click="setSaleCount(state.sellableCropStock)">
-                    最大
+                    全部
                   </NButton>
                 </div>
                 <div class="maple-estimate">
-                  <span>预计到账</span>
-                  <strong>{{ formatter.format(saleIncome) }} 福气币</strong>
+                  <span>{{ formatter.format(saleCount) }} × {{ formatter.format(state.quote.unitPrice) }}</span>
+                  <strong>{{ formatter.format(saleIncome) }} <small>福气币</small></strong>
                 </div>
-                <div class="maple-cashier__actions">
-                  <NButton type="primary" size="large" block :loading="pending === 'sell'" :disabled="!!pending" @click="request('sell')">
-                    卖给自己
-                  </NButton>
-                  <NButton secondary block :disabled="!!pending" @click="activeTab = 'compare'">
-                    去好友比价看看更高价
-                  </NButton>
-                </div>
-              </template>
-              <div v-else class="maple-cashier__empty">
-                <p>{{ state.phase !== 'active' ? '当前阶段已停止收购蜜薯' : '当前暂无可出售的未锁定蜜薯' }}</p>
-                <NButton v-if="state.phase === 'active'" secondary block :disabled="!!pending" @click="activeTab = 'compare'">
-                  查看好友收购价
+                <NButton type="primary" size="large" block :loading="pending === 'sell'" :disabled="!!pending" @click="request('sell')">
+                  卖出 {{ formatter.format(saleCount) }} 个
                 </NButton>
-              </div>
+              </template>
+              <p v-else class="maple-cashier__empty">
+                {{ state.phase !== 'active' ? '当前阶段已停止收购蜜薯' : '暂无可出售的蜜薯，收获后再来' }}
+              </p>
+              <button v-if="state.phase === 'active'" type="button" class="maple-link" :disabled="!!pending" @click="activeTab = 'compare'">
+                好友出价可能更高，去比价
+                <span class="i-carbon-arrow-right" aria-hidden="true" />
+              </button>
             </section>
           </aside>
         </div>
@@ -539,40 +584,43 @@ onUnmounted(() => {
             <h3 id="maple-goods-title">
               兑换商品
             </h3>
-            <small>{{ state.goods.length }} 款</small>
+            <small>{{ state.goods.length }} 款 · 持有 {{ formatter.format(state.coinBalance) }} 福气币</small>
           </header>
           <EmptyState v-if="!state.goods.length" title="暂无可兑换商品" icon="i-carbon-gift" />
           <ul v-else class="maple-goods">
-            <li v-for="goods in state.goods" :key="goods.id" class="maple-card maple-goods-card" :class="{ 'is-off': !goods.exchangeable }">
-              <strong class="maple-goods-card__name" :title="goods.name">{{ goods.name }}</strong>
-              <div class="maple-item__well">
-                <CommerceItemImage :src="goods.items[0]?.image" :alt="goods.name" />
-                <b v-if="goods.items.length === 1 && (goods.items[0]?.count ?? 0) > 1">×{{ goods.items[0]?.count }}</b>
+            <li v-for="goods in state.goods" :key="goods.id" class="maple-card maple-goods-card" :class="{ 'is-off': goods.remaining === 0 }">
+              <div class="maple-goods-card__top">
+                <div class="maple-item__well">
+                  <CommerceItemImage :src="goods.items[0]?.image" :alt="goods.name" />
+                  <b v-if="goods.items.length === 1 && (goods.items[0]?.count ?? 0) > 1">×{{ goods.items[0]?.count }}</b>
+                </div>
+                <div class="maple-goods-card__info">
+                  <strong :title="goods.name">{{ goods.name }}</strong>
+                  <span v-if="goods.items.length > 1">含 {{ goods.items.length }} 种道具</span>
+                  <span>
+                    <template v-if="goods.remaining !== null && goods.limitTimes !== null">
+                      {{ limitLabel(goods.limitType) }} · 剩 {{ formatter.format(goods.remaining) }} / {{ formatter.format(goods.limitTimes) }}
+                    </template>
+                    <template v-else>不限兑换次数</template>
+                  </span>
+                </div>
               </div>
-              <span class="maple-goods-card__meta">
-                <template v-if="goods.remaining !== null && goods.limitTimes !== null">
-                  {{ limitLabel(goods.limitType) }} {{ formatter.format(goods.remaining) }} / {{ formatter.format(goods.limitTimes) }}
-                </template>
-                <template v-else>
-                  不限兑换次数
-                </template>
-              </span>
-              <NButton
-                class="maple-goods-card__buy"
-                :type="goods.exchangeable ? 'primary' : 'default'"
-                :secondary="!goods.exchangeable"
-                block
-                :disabled="!goods.exchangeable || !!pending"
-                @click="selectExchange(goods)"
-              >
-                <template v-if="goods.remaining === 0">
-                  已售罄
-                </template>
-                <span v-else class="maple-price">
-                  <span class="i-carbon-currency" aria-hidden="true" />
-                  {{ formatter.format(goods.price) }}
+              <div class="maple-goods-card__foot">
+                <span class="maple-price">
+                  <span class="i-carbon-currency" aria-hidden="true" />{{ formatter.format(goods.price) }}
                 </span>
-              </NButton>
+                <NButton
+                  v-if="!goodsBlock(goods)"
+                  type="primary"
+                  size="small"
+                  :disabled="!!pending"
+                  :aria-label="`兑换${goods.name}`"
+                  @click="selectExchange(goods)"
+                >
+                  兑换
+                </NButton>
+                <span v-else class="maple-goods-card__state" :class="`is-${goodsBlock(goods)!.tone}`">{{ goodsBlock(goods)!.text }}</span>
+              </div>
             </li>
           </ul>
         </section>
@@ -595,21 +643,16 @@ onUnmounted(() => {
             icon="i-carbon-time"
           />
         </section>
-
-        <!-- 底部可折叠活动说明 -->
-        <section v-if="parsedRules.length" class="maple-section">
-          <button type="button" class="maple-section__toggle" :aria-expanded="rulesOpen" aria-controls="maple-rules" @click="rulesOpen = !rulesOpen">
-            活动说明
-            <span class="maple-section__chevron i-carbon-chevron-down" :class="{ 'is-open': rulesOpen }" aria-hidden="true" />
-          </button>
-          <div v-if="rulesOpen" id="maple-rules" class="maple-card maple-rules">
-            <p v-for="(line, index) in parsedRules" :key="index" :class="{ 'is-title': line.title }">
-              {{ line.text }}
-            </p>
-          </div>
-        </section>
       </template>
     </main>
+
+    <ActivityRulesDialog :open="rulesOpen" title="以薯换福 · 活动说明" @close="rulesOpen = false">
+      <div class="maple-rules">
+        <p v-for="(line, index) in parsedRules" :key="index" :class="{ 'is-title': line.title }">
+          {{ line.text }}
+        </p>
+      </div>
+    </ActivityRulesDialog>
 
     <!-- 收购记录弹窗 -->
     <NModal :show="purchaseLogOpen" :mask-closable="true" :close-on-esc="true" @update:show="visible => !visible && (purchaseLogOpen = false)">
@@ -655,6 +698,7 @@ onUnmounted(() => {
               :min="1"
               :max="Math.max(1, exchangeOffer.remaining ?? 9999)"
               :disabled="!!pending"
+              button-placement="both"
               aria-label="兑换份数"
               @update:value="setExchangeCount"
             />
@@ -739,6 +783,11 @@ onUnmounted(() => {
   color: var(--ui-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.maple-head__actions {
+  display: flex;
+  gap: 8px;
 }
 
 .maple-head__badge {
@@ -865,24 +914,28 @@ onUnmounted(() => {
 .maple-shop {
   display: grid;
   grid-template-areas:
-    'overview'
+    'quote'
     'ops'
-    'commission';
+    'tasks';
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 16px;
 }
 
-.maple-shop__overview {
-  grid-area: overview;
-}
-
-.maple-shop__commission {
+.maple-quote {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px 20px 20px;
-  grid-area: commission;
+  gap: 16px;
+  padding: 18px 20px;
+  grid-area: quote;
+}
+
+.maple-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px 10px;
+  grid-area: tasks;
 }
 
 .maple-shop__ops {
@@ -895,8 +948,7 @@ onUnmounted(() => {
 
 .maple-card__head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
 }
@@ -914,94 +966,301 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.maple-commission__body {
+/* —— 今日行情 —— */
+.maple-quote__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.maple-quote__head h3 {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 15px;
+  font-weight: var(--fw-650);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maple-quote__head h3 > span {
+  flex: none;
+  color: var(--ui-primary);
+  font-size: 16px;
+}
+
+.maple-pill {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+  font-size: 11px;
+  font-weight: var(--fw-600);
+  line-height: 20px;
+}
+
+.maple-quote__price {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-end;
   gap: 12px 16px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  background: var(--ui-surface-soft);
 }
 
-.maple-commission__metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.maple-quote__total {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 8px;
 }
 
-.maple-commission__metric span {
+.maple-quote__total small {
+  grid-column: 1 / -1;
   color: var(--ui-muted);
   font-size: 12px;
 }
 
-.maple-commission__metric strong {
-  color: var(--ui-ink);
-  font-size: 22px;
+.maple-quote__total strong {
+  color: var(--ui-primary);
+  font-size: 40px;
   font-weight: var(--fw-700);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.maple-quote__total span {
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.maple-quote__formula {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+}
+
+.maple-quote__formula > div {
+  display: flex;
+  min-width: 84px;
+  flex-direction: column-reverse;
+  gap: 1px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--ui-surface-soft);
+}
+
+.maple-quote__formula dt {
+  color: var(--ui-muted);
+  font-size: 11px;
+}
+
+.maple-quote__formula dd {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 17px;
+  font-weight: var(--fw-650);
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
-.maple-commission__metric small {
-  font-size: 12px;
-  font-weight: var(--fw-400);
-  color: var(--ui-muted);
+.maple-quote__formula > div:last-child:not(.is-empty) {
+  background: var(--ui-warning-soft);
 }
 
-.maple-commission__metric em {
-  font-style: normal;
-  color: var(--ui-primary);
+.maple-quote__formula > div:last-child:not(.is-empty) dd {
+  color: var(--ui-warning);
+}
+
+.maple-quote__formula > div.is-empty dd {
+  color: var(--ui-subtle);
+}
+
+.maple-quote__op {
+  align-self: center;
+  color: var(--ui-subtle);
+  font-size: 15px;
+}
+
+.maple-quote__empty {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  color: var(--ui-muted);
+  background: var(--ui-surface-soft);
+  font-size: 13px;
+}
+
+.maple-quota {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.maple-quota__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ui-muted);
   font-size: 12px;
+}
+
+.maple-quota__label b {
+  color: var(--ui-ink);
+  font-weight: var(--fw-600);
+  font-variant-numeric: tabular-nums;
+}
+
+.maple-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ui-surface-soft);
+}
+
+.maple-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ui-primary);
+  transition: width 0.3s ease;
+}
+
+.maple-quote__note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--ui-border-strong);
+  color: var(--ui-subtle);
+  font-size: 12px;
+}
+
+/* —— 小铺事项 —— */
+.maple-tasks__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maple-task {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 0;
+}
+
+.maple-task + .maple-task {
+  border-top: 1px solid var(--ui-border);
+}
+
+.maple-task__icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+  font-size: 18px;
+}
+
+.maple-task__main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.maple-task__main strong {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ui-ink);
+  font-size: 14px;
   font-weight: var(--fw-600);
 }
 
+.maple-task__main em {
+  color: var(--ui-primary);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: var(--fw-700);
+  font-variant-numeric: tabular-nums;
+}
+
+.maple-task__main small {
+  color: var(--ui-muted);
+  font-size: 12px;
+}
+
+.maple-task__done,
+.maple-task__idle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--ui-subtle);
+  font-size: 12px;
+}
+
+.maple-task__done {
+  color: var(--ui-primary);
+  font-weight: var(--fw-600);
+}
+
+/* —— 收银台 —— */
 .maple-cashier {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 18px 20px 20px;
+  padding: 18px 20px;
 }
 
-.maple-ledger-mini {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--ui-surface-soft);
-}
-
-.maple-ledger-mini > div {
+.maple-cashier__stock {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 4px 8px;
+  color: var(--ui-muted);
   font-size: 13px;
 }
 
-.maple-ledger-mini dt {
-  color: var(--ui-muted);
-}
-
-.maple-ledger-mini dd {
-  margin: 0;
+.maple-cashier__stock b {
   color: var(--ui-ink);
   font-weight: var(--fw-650);
   font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 
-.maple-ledger-mini small {
+.maple-cashier__stock small {
+  flex-basis: 100%;
   color: var(--ui-subtle);
   font-size: 12px;
-  font-weight: var(--fw-400);
+}
+
+.maple-quantity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.maple-quantity :deep(.n-input__input-el) {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .maple-estimate {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
@@ -1014,28 +1273,52 @@ onUnmounted(() => {
 
 .maple-estimate strong {
   color: var(--ui-primary);
-  font-size: 16px;
+  font-size: 20px;
   font-weight: var(--fw-700);
 }
 
-.maple-cashier__actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.maple-estimate small {
+  font-size: 12px;
+  font-weight: var(--fw-500);
 }
 
 .maple-cashier__empty {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px 0 4px;
+  margin: 0;
+  padding: 18px 12px;
+  border-radius: 12px;
   color: var(--ui-muted);
+  background: var(--ui-surface-soft);
   font-size: 13px;
   text-align: center;
 }
 
-.maple-cashier__empty p {
-  margin: 0;
+.maple-link {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ui-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.maple-link:hover:not(:disabled) {
+  color: var(--ui-primary);
+}
+
+.maple-link:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+.maple-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* —— 兑换商店 —— */
@@ -1067,7 +1350,7 @@ onUnmounted(() => {
 
 .maple-goods {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 12px;
   margin: 0;
   padding: 0;
@@ -1078,14 +1361,26 @@ onUnmounted(() => {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 16px 14px 14px;
-  text-align: center;
+  gap: 12px;
+  padding: 14px 16px;
 }
 
-.maple-goods-card__name {
-  max-width: 100%;
+.maple-goods-card__top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.maple-goods-card__info {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.maple-goods-card__info strong {
   overflow: hidden;
   color: var(--ui-ink);
   font-size: 14px;
@@ -1094,14 +1389,21 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.maple-goods-card__info span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .maple-item__well {
   position: relative;
   display: grid;
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
+  flex: none;
   place-items: center;
   border: 1px solid var(--ui-border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--ui-surface-soft);
 }
 
@@ -1114,8 +1416,8 @@ onUnmounted(() => {
 
 .maple-item__well b {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
+  right: 3px;
+  bottom: 3px;
   padding: 0 5px;
   border-radius: 999px;
   color: #fff;
@@ -1126,74 +1428,66 @@ onUnmounted(() => {
 }
 
 .maple-goods-card.is-off .maple-item__well {
-  filter: grayscale(0.55);
-  opacity: 0.78;
+  filter: grayscale(0.6);
+  opacity: 0.7;
 }
 
-.maple-goods-card__meta {
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.maple-goods-card__buy {
-  margin-top: auto;
+.maple-goods-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ui-border-strong);
 }
 
 .maple-price {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  color: var(--ui-ink);
+  font-size: 15px;
+  font-weight: var(--fw-700);
   font-variant-numeric: tabular-nums;
 }
 
-/* —— 活动说明 —— */
-.maple-section__toggle {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  border: 0;
-  color: var(--ui-ink);
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  font-weight: var(--fw-650);
-  cursor: pointer;
+.maple-price > span {
+  color: var(--ui-warning);
+  font-size: 16px;
 }
 
-.maple-section__toggle:hover {
-  color: var(--ui-primary);
-}
-
-.maple-section__chevron {
+.maple-goods-card.is-off .maple-price {
   color: var(--ui-subtle);
-  transition: transform var(--spring-drag-duration) var(--spring-drag);
 }
 
-.maple-section__chevron.is-open {
-  transform: rotate(180deg);
+.maple-goods-card__state {
+  color: var(--ui-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
-.maple-rules {
-  padding: 16px 22px;
-  column-width: 400px;
-  column-gap: 36px;
+.maple-goods-card__state.is-short {
+  color: var(--ui-warning);
+  font-weight: var(--fw-600);
 }
 
+/* —— 活动说明 —— */
 .maple-rules p {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   color: var(--ui-muted);
   font-size: 13px;
-  line-height: 1.65;
-  break-inside: avoid;
+  line-height: 1.7;
 }
 
 .maple-rules p.is-title {
-  margin-top: 8px;
+  margin-top: 14px;
   color: var(--ui-ink);
   font-weight: var(--fw-650);
+}
+
+.maple-rules p.is-title:first-child {
+  margin-top: 0;
 }
 
 /* —— 弹窗 —— */
@@ -1412,9 +1706,9 @@ onUnmounted(() => {
 @container maple-content (min-width: 980px) {
   .maple-shop {
     grid-template-areas:
-      'overview ops'
-      'commission ops';
-    grid-template-columns: minmax(0, 1fr) 360px;
+      'quote ops'
+      'tasks ops';
+    grid-template-columns: minmax(0, 1fr) 340px;
     grid-template-rows: auto 1fr;
     gap: 16px 20px;
   }
@@ -1433,7 +1727,7 @@ onUnmounted(() => {
 
 @media (max-width: 520px) {
   .maple-goods {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 

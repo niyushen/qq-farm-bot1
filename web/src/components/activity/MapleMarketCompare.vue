@@ -165,6 +165,21 @@ const saleMax = computed(() => {
   return row.gid === 0 ? props.stock : Math.min(props.stock, row.quote.remainingQuota)
 })
 
+const saleLimitHint = computed(() => {
+  const quote = selected.value?.quote
+  if (!quote || selected.value?.gid === 0 || props.stock <= quote.remainingQuota)
+    return '受可卖蜜薯限制'
+  return '受好友剩余额度限制'
+})
+
+function diffTone(diff: number) {
+  return diff > 0 ? 'is-up' : diff < 0 ? 'is-down' : ''
+}
+
+function formatDiff(diff: number) {
+  return diff > 0 ? `+${formatter.format(diff)}` : diff < 0 ? `−${formatter.format(-diff)}` : '持平'
+}
+
 const validCount = computed(() => Number.isSafeInteger(count.value) && count.value > 0 && count.value <= saleMax.value)
 
 function setSaleCount(value: number | null) {
@@ -282,7 +297,7 @@ onUnmounted(() => lifecycle.abort())
           <h3 :id="titleId">
             好友铺子比价
           </h3>
-          <p>按暴击后的实际收购价从高到低排序；同日再次查询自动跳过已获暴击的好友，仅补查其余好友。</p>
+          <p>按暴击后的实际收购价排序。同一天再查会跳过已暴击的好友，只补查其余好友。</p>
         </div>
         <NButton type="primary" :loading="running" :disabled="loading || !!selected" @click="loadComparison(true)">
           <template #icon>
@@ -329,14 +344,10 @@ onUnmounted(() => lifecycle.abort())
 
     <EmptyState
       v-if="!running && (!result || result.status === 'idle')"
-      title="点击上方按钮查询好友收购价"
-      description="查询会在后台自动分批拉取全部好友店铺，未暴击但已有基础价的好友同样可直接出售"
+      title="还没有查询好友报价"
+      description="点击右上角「查询全部好友」，后台会分批读取好友小铺；未暴击的好友也能直接出售"
       icon="i-carbon-chart-bar"
-    >
-      <NButton type="primary" :disabled="loading" @click="loadComparison(true)">
-        立即查询全部好友
-      </NButton>
-    </EmptyState>
+    />
 
     <EmptyState
       v-else-if="!running && result?.status === 'ready' && result.total === 0"
@@ -377,10 +388,10 @@ onUnmounted(() => lifecycle.abort())
                   收购价
                 </th>
                 <th scope="col">
-                  暴击加价
+                  比自家
                 </th>
                 <th scope="col">
-                  接收额度
+                  剩余额度
                 </th>
                 <th scope="col">
                   操作
@@ -402,17 +413,14 @@ onUnmounted(() => lifecycle.abort())
                 <template v-if="row.quote">
                   <td class="maple-compare__price">
                     <strong>{{ formatter.format(row.quote.unitPrice) }}</strong>
-                    <small v-if="row.quote.boost > 0">基础 {{ formatter.format(row.quote.basePrice) }}</small>
+                    <small v-if="row.quote.boost > 0">{{ formatter.format(row.quote.basePrice) }} + <em>{{ formatter.format(row.quote.boost) }}</em></small>
+                    <small v-else-if="row.failed" class="is-danger">复查失败</small>
+                    <small v-else>未暴击</small>
                   </td>
                   <td>
-                    <span v-if="row.quote.boost > 0" class="maple-chip">
-                      +{{ formatter.format(row.quote.boost) }}
-                    </span>
-                    <span v-else-if="row.failed" class="maple-chip is-danger">
-                      复查失败
-                    </span>
-                    <span v-else class="maple-chip is-muted">
-                      未暴击
+                    <span v-if="row.gid === 0 || !ownQuote" class="maple-diff">—</span>
+                    <span v-else class="maple-diff" :class="diffTone(row.quote.unitPrice - ownQuote.unitPrice)">
+                      {{ formatDiff(row.quote.unitPrice - ownQuote.unitPrice) }}
                     </span>
                   </td>
                   <td class="maple-quota">
@@ -468,21 +476,24 @@ onUnmounted(() => lifecycle.abort())
               <dt>收购单价</dt>
               <dd>
                 {{ formatter.format(selected.quote.unitPrice) }} 福气币 / 个
-                <small v-if="selected.quote.boost > 0">（基础 {{ formatter.format(selected.quote.basePrice) }} + 暴击 {{ formatter.format(selected.quote.boost) }}）</small>
+                <small v-if="selected.quote.boost > 0">{{ formatter.format(selected.quote.basePrice) }} + 暴击 {{ formatter.format(selected.quote.boost) }}</small>
               </dd>
             </div>
             <div>
-              <dt>可售上限</dt>
-              <dd>{{ formatter.format(saleMax) }} 个</dd>
+              <dt>最多可卖</dt>
+              <dd>
+                {{ formatter.format(saleMax) }} 个
+                <small>{{ saleLimitHint }}</small>
+              </dd>
             </div>
           </dl>
-          <div class="maple-confirm__quantity">
-            <span>出售数量</span>
+          <div class="maple-quantity">
             <NInputNumber
               :value="count"
               :min="1"
               :max="Math.max(1, saleMax)"
               :disabled="selling"
+              button-placement="both"
               aria-label="出售数量"
               @update:value="setSaleCount"
             />
@@ -491,8 +502,8 @@ onUnmounted(() => lifecycle.abort())
             </NButton>
           </div>
           <div class="maple-estimate">
-            <span>预计到账</span>
-            <strong>{{ formatter.format(validCount ? count * selected.quote.unitPrice : 0) }} 福气币</strong>
+            <span>{{ formatter.format(count) }} × {{ formatter.format(selected.quote.unitPrice) }}</span>
+            <strong>{{ formatter.format(validCount ? count * selected.quote.unitPrice : 0) }} <small>福气币</small></strong>
           </div>
         </div>
         <template #footer>
@@ -501,7 +512,7 @@ onUnmounted(() => lifecycle.abort())
               取消
             </NButton>
             <NButton type="primary" :loading="selling" :disabled="!validCount || selling || activityBusy" @click="sell">
-              确认出售
+              卖出 {{ formatter.format(count) }} 个
             </NButton>
           </div>
         </template>
@@ -722,6 +733,13 @@ tbody th {
   text-align: center;
 }
 
+/* 数值列定宽靠右，铺主列吃掉剩余宽度，避免宽屏下价格和名字隔得太远。 */
+@media (min-width: 900px) {
+  thead th:nth-child(n + 3) {
+    width: 120px;
+  }
+}
+
 tbody tr.is-featured {
   background: color-mix(in srgb, var(--ui-primary-soft) 55%, transparent);
 }
@@ -755,6 +773,7 @@ tbody tr.is-self {
 
 .maple-owner strong {
   color: var(--ui-ink);
+  white-space: nowrap;
   font-size: 14px;
   font-weight: var(--fw-600);
 }
@@ -775,6 +794,31 @@ tbody tr.is-self {
 .maple-compare__price small {
   color: var(--ui-subtle);
   font-size: 11px;
+}
+
+.maple-compare__price small em {
+  color: var(--ui-warning);
+  font-style: normal;
+  font-weight: var(--fw-600);
+}
+
+.maple-compare__price small.is-danger {
+  color: var(--ui-danger);
+}
+
+.maple-diff {
+  color: var(--ui-subtle);
+  font-size: 13px;
+  font-weight: var(--fw-600);
+}
+
+.maple-diff.is-up {
+  color: var(--ui-primary);
+}
+
+.maple-diff.is-down {
+  color: var(--ui-muted);
+  font-weight: var(--fw-400);
 }
 
 .maple-quota {
@@ -871,23 +915,26 @@ tbody tr.is-self {
 }
 
 .maple-ledger-mini small {
+  display: block;
   color: var(--ui-subtle);
   font-size: 12px;
   font-weight: var(--fw-400);
 }
 
-.maple-confirm__quantity {
+.maple-quantity {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  color: var(--ui-muted);
-  font-size: 13px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.maple-quantity :deep(.n-input__input-el) {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .maple-estimate {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
@@ -900,8 +947,13 @@ tbody tr.is-self {
 
 .maple-estimate strong {
   color: var(--ui-primary);
-  font-size: 16px;
+  font-size: 20px;
   font-weight: var(--fw-700);
+}
+
+.maple-estimate small {
+  font-size: 12px;
+  font-weight: var(--fw-500);
 }
 
 .maple-confirm__actions {
