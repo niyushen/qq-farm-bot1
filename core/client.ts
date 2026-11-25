@@ -34,6 +34,9 @@ if (isWorkerProcess) {
         emitRealtimeLog,
         emitRealtimeAccountLog,
     } = require(`${baseDir}/controllers/admin`);
+    // 配置升级迁移只在主进程启动时执行一次，避免测试/ worker 并发写配置。
+    const { migrateRanchFriendProduceDefault } = require(`${baseDir}/models/store/global-config`);
+    migrateRanchFriendProduceDefault();
     const { createRuntimeEngine } = require(`${baseDir}/runtime/runtime-engine`);
     const { createModuleLogger } = require(`${baseDir}/services/logger`);
     const mainLogger = createModuleLogger('main');

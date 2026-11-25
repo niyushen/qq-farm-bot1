@@ -211,4 +211,6 @@ export interface GlobalConfig {
   usersSeeAllAccounts: boolean;
   /** 排行榜数据可见范围：all=全员可见（默认），super_admin=仅超级管理员可见 */
   coinRankVisibility: 'all' | 'super_admin';
+  /** 一次性迁移标记：好友牧场「自动帮忙生产」已提升为默认开启 */
+  ranchFriendProduceDefaultOnMigrated: boolean;
 }

@@ -43,6 +43,7 @@ test('其余牧场开关默认值不被改动', () => {
   assert.equal(RANCH_AUTOMATION_DEFAULTS.ranch_share, true);
   assert.equal(RANCH_AUTOMATION_DEFAULTS.ranch_daily_benefit, true);
   assert.equal(RANCH_AUTOMATION_DEFAULTS.ranch_friend_steal, true);
+  assert.equal(RANCH_AUTOMATION_DEFAULTS.ranch_friend_produce, true);
   assert.equal(RANCH_AUTOMATION_DEFAULTS.ranch_friend_clean, true);
   assert.equal(RANCH_AUTOMATION_DEFAULTS.ranch_friend_mosquito, true);
 });

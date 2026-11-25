@@ -610,6 +610,7 @@ const globalConfig: GlobalConfig = {
     usersSeeAllAccounts: false,
     // 排行榜默认全员可见
     coinRankVisibility: 'all',
+    ranchFriendProduceDefaultOnMigrated: false,
 };
 
 function resolveAccountId(accountId: unknown): string {
@@ -655,6 +656,8 @@ function loadGlobalConfig(): void {
 
             // 排行榜可见范围（默认全员可见）
             globalConfig.coinRankVisibility = data.coinRankVisibility === 'super_admin' ? 'super_admin' : 'all';
+
+            globalConfig.ranchFriendProduceDefaultOnMigrated = data.ranchFriendProduceDefaultOnMigrated === true;
 
             if (data.loginSettings && typeof data.loginSettings === 'object') {
                 globalConfig.loginSettings = {

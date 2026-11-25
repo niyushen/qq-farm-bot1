@@ -301,7 +301,37 @@ if (sharedState.systemConfigMigrated && !process.env.FARM_ACCOUNT_ID) {
     sharedState.systemConfigMigrated = false;
 }
 
+/**
+ * 一次性迁移：好友牧场「自动帮忙生产」从默认关闭改为默认开启。
+ * 只由主进程在启动时显式调用；仅迁移尚未处理过的配置，之后用户手动关闭的选择照常保留。
+ */
+function migrateRanchFriendProduceDefault(): void {
+    if (globalConfig.ranchFriendProduceDefaultOnMigrated) return;
+    const fallbackAutomation = globalConfig.defaultAccountConfig.automation as any;
+    if (fallbackAutomation && fallbackAutomation.ranch_friend_produce === false) {
+        fallbackAutomation.ranch_friend_produce = true;
+    }
+    let migrationFailed = false;
+    for (const [id, rawCfg] of Object.entries(globalConfig.accountConfigs)) {
+        const cfg = rawCfg as any;
+        const automation = cfg?.automation;
+        if (!automation || automation.ranch_friend_produce !== false) continue;
+        automation.ranch_friend_produce = true;
+        try {
+            sharedState.configStorage.saveAccount(id, cfg);
+        } catch (e: any) {
+            migrationFailed = true;
+            console.error(`迁移账号 ${id} 的牧场帮忙生产开关失败: ${e?.message || e}`);
+        }
+    }
+    if (!migrationFailed) {
+        globalConfig.ranchFriendProduceDefaultOnMigrated = true;
+        saveGlobalConfig();
+    }
+}
+
 module.exports = {
+    migrateRanchFriendProduceDefault,
     saveGlobalConfig,
     getUI,
     setUITheme,
