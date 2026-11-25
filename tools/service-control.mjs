@@ -751,6 +751,14 @@ async function stageRelease(releasesDir, releaseId, populate) {
     }
 }
 
+function readBuildFingerprint(dir) {
+    try {
+        return fs.readFileSync(path.join(dir, 'dist', 'build-fingerprint'), 'utf8').trim();
+    } catch {
+        return '';
+    }
+}
+
 async function stageHostRelease(cfg, options = {}) {
     const releaseId = options.releaseId || createReleaseId('host');
     const candidateDir = createReleaseDirectory(cfg.hostReleasesDir, releaseId);
@@ -767,6 +775,42 @@ async function stageHostRelease(cfg, options = {}) {
     }
     await runCommand(process.execPath, ['--check', path.join(candidateDir, 'dist/session/host.js')]);
     return { releaseId, dir: candidateDir };
+}
+
+/**
+ * 启动游戏连接服务；就绪失败时回收本次拉起的进程与残留锁，
+ * 避免留下僵死进程占住 socket 与 pid 文件导致后续启动失败。
+ */
+async function startHostRelease(cfg, hostRel, label = '启动游戏连接服务') {
+    cleanupStaleUnixSocket(cfg, { state: 'absent' });
+    const hostLogFile = path.join(cfg.hostLogDir, 'service.log');
+    const hostPid = spawnDetachedService({
+        command: process.execPath,
+        args: [path.join(hostRel.dir, 'dist', 'session', 'host.js')],
+        cwd: hostRel.dir,
+        env: buildRoleEnv(cfg, 'host', hostRel),
+        logFile: hostLogFile,
+        pidFile: cfg.hostPidPath,
+    });
+    try {
+        return await withProgress(label, () => waitForHostReady(cfg, hostPid));
+    } catch (err) {
+        if (hostPid && isProcessAlive(hostPid)) {
+            try { process.kill(hostPid, 'SIGTERM'); } catch {}
+            const killDeadline = Date.now() + 2000;
+            while (Date.now() < killDeadline && isProcessAlive(hostPid)) {
+                await sleep(50);
+            }
+            if (isProcessAlive(hostPid)) {
+                try { process.kill(hostPid, 'SIGKILL'); } catch {}
+            }
+        }
+        await stopHostProcess(cfg).catch(() => {});
+        removeStaleLock(cfg.hostLockPath);
+        try { if (fs.existsSync(cfg.hostPidPath)) fs.unlinkSync(cfg.hostPidPath); } catch {}
+        cleanupStaleUnixSocket(cfg, { state: 'absent' });
+        throw err;
+    }
 }
 
 async function stageWebRelease(cfg, options = {}) {
@@ -1257,7 +1301,13 @@ async function cmdStart(cfg, flags) {
         if (host.state === 'absent') {
             cleanupStaleUnixSocket(cfg, host);
             let hostRel = resolveReleaseDir(cfg.hostReleasesDir, releases.host?.active);
-            if (!hostRel) {
+            let hostNeedsStage = !hostRel;
+            if (hostRel && !flags['skip-build'] && !flags['stage-host-from'] && fs.existsSync(path.join(REPO_ROOT, 'turbo.json'))) {
+                await ensureBuildDependencies();
+                const targets = await targetFingerprints(REPO_ROOT);
+                if (readBuildFingerprint(hostRel.dir) !== targets.host) hostNeedsStage = true;
+            }
+            if (hostNeedsStage) {
                 hostRel = await stageHostRelease(cfg, {
                     skipBuild: Boolean(flags['skip-build']),
                     stageFrom: flags['stage-host-from'],
@@ -1265,16 +1315,7 @@ async function cmdStart(cfg, flags) {
                 releases = recordActiveRelease(cfg, 'host', hostRel.releaseId);
                 pruneOldReleases(cfg.hostReleasesDir, releases.host, 2);
             }
-            const hostLogFile = path.join(cfg.hostLogDir, 'service.log');
-            const hostPid = spawnDetachedService({
-                command: process.execPath,
-                args: [path.join(hostRel.dir, 'dist', 'session', 'host.js')],
-                cwd: hostRel.dir,
-                env: buildRoleEnv(cfg, 'host', hostRel),
-                logFile: hostLogFile,
-                pidFile: cfg.hostPidPath,
-            });
-            activeHost = await withProgress('启动游戏连接服务', () => waitForHostReady(cfg, hostPid));
+            activeHost = await startHostRelease(cfg, hostRel);
         }
 
         const latestBackend = await probeBackend(cfg);
@@ -1433,13 +1474,135 @@ function assertBackendIpc(dir, host) {
     }
 }
 
+async function updateHost(cfg, flags) {
+    const host = await probeHost(cfg);
+    const backendBefore = await probeBackend(cfg);
+    if (host.state === 'conflict') throw new Error(`游戏连接服务状态冲突：${host.reason}`);
+    if (host.state === 'starting') throw new Error(`游戏连接服务正在启动（pid=${host.pid}），请稍候再试。`);
+    if (backendBefore.state === 'conflict') throw new Error(`面板服务状态冲突：${backendBefore.reason}`);
+    if (backendBefore.state === 'starting') throw new Error(`面板服务正在启动（pid=${backendBefore.pid}），请稍候再试。`);
+
+    const onlineSessions = (host.sessions || []).filter(s => s.lifecycle === 'ONLINE');
+    if (onlineSessions.length > 0 && !flags['disconnect-sessions']) {
+        throw new Error(`无法升级游戏连接服务：当前有 ${onlineSessions.length} 个账号在线挂机。请先停止挂机账号，或执行 bash ./update.sh host --disconnect-sessions 确认断开并升级。`);
+    }
+
+    const releases = readActiveReleases(cfg);
+    const fromSource = !flags['skip-build'] && !flags['stage-host-from'];
+    const currentHostRel = resolveReleaseDir(
+        cfg.hostReleasesDir,
+        host.state === 'ready' ? (host.releaseId || releases.host?.active) : releases.host?.active,
+    );
+    if (fromSource && !flags.force) {
+        await ensureBuildDependencies();
+        const targets = await targetFingerprints(REPO_ROOT);
+        if (currentHostRel && readBuildFingerprint(currentHostRel.dir) === targets.host) {
+            logUpdate('游戏连接服务无需更新。');
+            return 0;
+        }
+    }
+
+    const nextHostRel = await stageHostRelease(cfg, {
+        skipBuild: Boolean(flags['skip-build']),
+        stageFrom: flags['stage-host-from'],
+    });
+
+    if (host.state === 'absent') {
+        const nextReleases = recordActiveRelease(cfg, 'host', nextHostRel.releaseId);
+        pruneOldReleases(cfg.hostReleasesDir, nextReleases.host, 2);
+        logUpdate('游戏连接服务发布包已更新，当前未运行；执行 bash ./start.sh 启动即可。');
+        return 0;
+    }
+
+    let prevBackendRel = null;
+    if (backendBefore.state === 'ready') {
+        prevBackendRel = resolveReleaseDir(cfg.backendReleasesDir, backendBefore.releaseId || releases.backend?.active);
+        if (!prevBackendRel) {
+            removeRelease(nextHostRel.dir);
+            throw new Error('当前面板服务版本目录无效，无法在升级游戏连接服务后自动重连；已取消升级。');
+        }
+        const nextHostIpc = readReleaseIpcVersion(nextHostRel.dir);
+        const prevBackendIpc = readReleaseIpcVersion(prevBackendRel.dir);
+        if (nextHostIpc && prevBackendIpc && nextHostIpc !== prevBackendIpc) {
+            removeRelease(nextHostRel.dir);
+            throw new Error(`新版游戏连接服务协议版本（${nextHostIpc}）与当前面板服务（${prevBackendIpc}）不兼容，请先执行 bash ./stop.sh all，再执行 bash ./start.sh。`);
+        }
+    }
+
+    try {
+        if (prevBackendRel) {
+            await withProgress('停止面板服务', () => stopBackendProcess(cfg));
+        }
+        await withProgress('停止旧版游戏连接服务', () => stopHostProcess(cfg));
+        cleanupStaleUnixSocket(cfg, { state: 'absent' });
+    } catch (err) {
+        removeRelease(nextHostRel.dir);
+        throw err;
+    }
+
+    let activeHost;
+    try {
+        activeHost = await startHostRelease(cfg, nextHostRel, '启动新版游戏连接服务');
+    } catch (err) {
+        await stopHostProcess(cfg).catch(() => {});
+        removeRelease(nextHostRel.dir);
+        if (currentHostRel) {
+            try {
+                const restoredHost = await startHostRelease(cfg, currentHostRel, '启动失败，正在恢复原游戏连接服务');
+                if (prevBackendRel) {
+                    const rbBackendPid = spawnDetachedService({
+                        command: process.execPath,
+                        args: [path.join(prevBackendRel.dir, 'client.js')],
+                        cwd: prevBackendRel.dir,
+                        env: buildRoleEnv(cfg, 'backend', prevBackendRel),
+                        logFile: path.join(cfg.backendLogDir, 'service.log'),
+                        pidFile: cfg.backendPidPath,
+                    });
+                    await waitForBackendReady(cfg, rbBackendPid, restoredHost);
+                }
+            } catch {}
+        }
+        throw err;
+    }
+
+    const nextReleases = recordActiveRelease(cfg, 'host', nextHostRel.releaseId);
+    pruneOldReleases(cfg.hostReleasesDir, nextReleases.host, 2);
+
+    if (prevBackendRel) {
+        const backendLogFile = path.join(cfg.backendLogDir, 'service.log');
+        const newBackendPid = spawnDetachedService({
+            command: process.execPath,
+            args: [path.join(prevBackendRel.dir, 'client.js')],
+            cwd: prevBackendRel.dir,
+            env: buildRoleEnv(cfg, 'backend', prevBackendRel),
+            logFile: backendLogFile,
+            pidFile: cfg.backendPidPath,
+        });
+        try {
+            await waitForBackendReady(cfg, newBackendPid, activeHost);
+        } catch (err) {
+            if (isProcessAlive(newBackendPid)) {
+                try { process.kill(newBackendPid, 'SIGTERM'); } catch {}
+                await stopBackendProcess(cfg, newBackendPid).catch(() => {});
+            }
+            throw err;
+        }
+    }
+
+    logUpdate(prevBackendRel ? '游戏连接服务已升级至新版，面板服务已重新连接。' : '游戏连接服务已升级至新版。');
+    return 0;
+}
+
 async function cmdUpdate(cfg, positional, flags) {
     const target = (positional[0] || 'all').toLowerCase();
-    if (!['all', 'backend', 'web'].includes(target)) {
-        throw new Error(`Unsupported update target: ${target}. Use all, backend, or web.`);
+    if (!['all', 'backend', 'web', 'host'].includes(target)) {
+        throw new Error(`Unsupported update target: ${target}. Use all, backend, web, or host.`);
     }
 
     return withDeployLock(cfg, async () => {
+        if (target === 'host') {
+            return updateHost(cfg, flags);
+        }
         const keepBackups = readBackupEnabled(cfg.runtimeDir);
         const requested = target === 'all' ? ['web', 'backend'] : [target];
         const fromSource = requested.filter(key => !flags['skip-build'] && !flags[`stage-${key}-from`]);

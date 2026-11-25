@@ -6,6 +6,7 @@ import "corepb.proto";
 import "autumn-activities.proto";
 import "milk-tea.proto";
 import "pet-diary.proto";
+import "maple-market.proto";
 
 message ActivityContent {
     int64 activity_id = 1;
@@ -123,6 +124,7 @@ message WeatherResearchData {
 }
 
 message ActivityData {
+    ActivityBodyMapleMarket maple_market = 130;
     ActivityBodyMilkTea milk_tea = 121;
     ActivityBodyGrowthFund growth_fund = 122;
     ActivityBodyWishSign wish_sign = 119;
@@ -453,6 +455,13 @@ message QixiBridgeRewardResult {
 }
 
 message ActivityOperateReply {
+    MapleMarketClaimSeedRsp maple_market_claim_seed = 191;
+    MapleMarketGetShopRsp maple_market_get_shop = 192;
+    MapleMarketSellRsp maple_market_sell = 193;
+    MapleMarketGetPurchaseLogRsp maple_market_get_purchase_log = 195;
+    MapleMarketExchangeRsp maple_market_exchange = 196;
+    MapleMarketGetGoodsListRsp maple_market_get_goods_list = 197;
+    MapleMarketClaimCommissionRsp maple_market_claim_commission = 199;
     MilkTeaCreateShopRsp milk_tea_create_shop = 158;
     MilkTeaRenameShopRsp milk_tea_rename_shop = 159;
     MilkTeaGetShopRsp milk_tea_get_shop = 160;

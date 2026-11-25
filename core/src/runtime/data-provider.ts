@@ -290,6 +290,21 @@ function createDataProvider(options: DataProviderOptions) {
         ),
         getMugeActivity: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getMugeActivity'),
         operateMugeActivity: (accountRef: string, action: string, input: any) => callWorkerApi(resolveAccountRefId(accountRef), 'operateMugeActivity', action, input),
+        getMapleMarketActivity: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getMapleMarketActivity'),
+        getMapleMarketPurchaseLog: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getMapleMarketPurchaseLog'),
+        getMapleMarketComparison: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getMapleMarketComparison'),
+        startMapleMarketComparison: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'startMapleMarketComparison'),
+        sellToMapleMarketFriend: (accountRef: string, gid: number, count: number, expectedUnitPrice: number) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'sellToMapleMarketFriend', gid, count, expectedUnitPrice)
+        ),
+        claimMapleMarketSeed: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'claimMapleMarketSeed'),
+        claimMapleMarketCommission: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'claimMapleMarketCommission'),
+        sellMapleMarketCrop: (accountRef: string, count: number, expectedUnitPrice: number) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'sellMapleMarketCrop', count, expectedUnitPrice)
+        ),
+        exchangeMapleMarketGoods: (accountRef: string, goodsId: number, count: number, expectedUnitPrice: number) => (
+            callWorkerApi(resolveAccountRefId(accountRef), 'exchangeMapleMarketGoods', goodsId, count, expectedUnitPrice)
+        ),
         getMilkTeaActivity: (accountRef: string, page: string, input: any) => callWorkerApi(resolveAccountRefId(accountRef), 'getMilkTeaActivity', page, input),
         operateMilkTeaActivity: (accountRef: string, action: string, input: any) => callWorkerApi(resolveAccountRefId(accountRef), 'operateMilkTeaActivity', action, input),
         getShareRewardActivity: (accountRef: string, activityId: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getShareRewardActivity', activityId),

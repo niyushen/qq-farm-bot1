@@ -1343,6 +1343,33 @@ async function handleApiCall(msg: any): Promise<void> {
                 case 'operateMugeActivity':
                     result = await require('../services/muge-activity').operateMugeActivity(args[0], args[1]);
                     break;
+                case 'getMapleMarketActivity':
+                    result = await require('../services/maple-market').getMapleMarketActivity();
+                    break;
+                case 'getMapleMarketPurchaseLog':
+                    result = await require('../services/maple-market').getMapleMarketPurchaseLog();
+                    break;
+                case 'getMapleMarketComparison':
+                    result = await require('../services/maple-market-compare').getMapleMarketComparison();
+                    break;
+                case 'startMapleMarketComparison':
+                    result = await require('../services/maple-market-compare').startMapleMarketComparison();
+                    break;
+                case 'sellToMapleMarketFriend':
+                    result = await require('../services/maple-market-compare').sellToMapleMarketFriend(args[0], args[1], args[2]);
+                    break;
+                case 'claimMapleMarketSeed':
+                    result = await require('../services/maple-market').claimMapleMarketSeed();
+                    break;
+                case 'claimMapleMarketCommission':
+                    result = await require('../services/maple-market').claimMapleMarketCommission();
+                    break;
+                case 'sellMapleMarketCrop':
+                    result = await require('../services/maple-market').sellMapleMarketCrop(args[0], args[1], args[2]);
+                    break;
+                case 'exchangeMapleMarketGoods':
+                    result = await require('../services/maple-market').exchangeMapleMarketGoods(args[0], args[1], args[2]);
+                    break;
                 case 'getMilkTeaActivity':
                     result = await require('../services/milk-tea').getMilkTeaActivity(args[0], args[1]);
                     break;

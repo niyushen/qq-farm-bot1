@@ -10,6 +10,7 @@ const props = defineProps<{
   goods: MallGoodsDto | null
   limitLabel?: string
   pending?: boolean
+  verb?: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +18,7 @@ const emit = defineEmits<{
   confirm: [count: number]
 }>()
 
+const actionVerb = computed(() => props.verb || '购买')
 const count = ref(1)
 const maxCount = computed(() => purchaseMaxCount({
   limitRemaining: props.goods?.limit?.remaining ?? null,
@@ -44,7 +46,7 @@ function inputCount(event: Event) {
 
 <template>
   <div v-if="open && goods" class="purchase-mask" @click.self="!pending && emit('close')">
-    <section class="purchase-dialog" role="dialog" aria-modal="true" :aria-label="`购买${goods.name}`">
+    <section class="purchase-dialog" role="dialog" aria-modal="true" :aria-label="`${actionVerb}${goods.name}`">
       <!-- 头部：小图 + 名称 + 单价，主图不再单独占据大块面积 -->
       <header class="purchase-head">
         <CommerceItemImage :src="goods.rewards[0]?.image" :alt="goods.rewards[0]?.name" size="md" />
@@ -56,7 +58,8 @@ function inputCount(event: Event) {
             </template>
             <template v-else>
               单价
-              <CommerceItemImage :src="goods.price.image" :alt="goods.price.name" size="sm" />
+              <CommerceItemImage v-if="goods.price.image" :src="goods.price.image" :alt="goods.price.name" size="sm" />
+              <span v-else class="purchase-currency-icon i-carbon-currency" :title="goods.price.name" aria-hidden="true" />
               <b>{{ goods.price.count.toLocaleString() }}</b>
               <del v-if="goods.originalPrice">{{ goods.originalPrice.toLocaleString() }}</del>
             </template>
@@ -82,14 +85,14 @@ function inputCount(event: Event) {
 
         <div class="purchase-row">
           <div>
-            <span class="purchase-row__label">购买数量</span>
-            <small v-if="goods.limit">{{ limitLabel || '限购' }} · 还可购买 {{ maxCount }} 份</small>
+            <span class="purchase-row__label">{{ actionVerb }}数量</span>
+            <small v-if="goods.limit">{{ limitLabel || '限购' }} · 还可{{ actionVerb }} {{ maxCount }} 份</small>
           </div>
           <div class="stepper">
             <button type="button" title="减少" aria-label="减少" :disabled="pending || count <= 1" @click="setCount(count - 1)">
               <span class="i-carbon-subtract" />
             </button>
-            <input :value="count" inputmode="numeric" aria-label="购买数量" :disabled="pending || maxCount < 1" @input="inputCount">
+            <input :value="count" inputmode="numeric" aria-label="`${actionVerb}数量`" :disabled="pending || maxCount < 1" @input="inputCount">
             <button type="button" title="增加" aria-label="增加" :disabled="pending || count >= maxCount" @click="setCount(count + 1)">
               <span class="i-carbon-add" />
             </button>
@@ -103,7 +106,8 @@ function inputCount(event: Event) {
           </div>
           <strong v-if="goods.isFree" class="purchase-total is-free">免费</strong>
           <strong v-else class="purchase-total" :class="{ 'is-short': insufficient }">
-            <CommerceItemImage :src="goods.price.image" :alt="goods.price.name" size="sm" />
+            <CommerceItemImage v-if="goods.price.image" :src="goods.price.image" :alt="goods.price.name" size="sm" />
+            <span v-else class="purchase-currency-icon i-carbon-currency" :title="goods.price.name" aria-hidden="true" />
             {{ totalCost.toLocaleString() }}
           </strong>
         </div>
@@ -121,7 +125,7 @@ function inputCount(event: Event) {
           取消
         </NButton>
         <NButton type="primary" :loading="pending" :disabled="pending || maxCount < 1 || insufficient || balanceUnknown || !goods.purchasable" @click="emit('confirm', count)">
-          {{ pending ? '购买中' : goods.isFree ? '确认领取' : '确认购买' }}
+          {{ pending ? `${actionVerb}中` : goods.isFree ? '确认领取' : `确认${actionVerb}` }}
         </NButton>
       </footer>
     </section>
@@ -203,6 +207,15 @@ function inputCount(event: Event) {
 
 .purchase-head p del {
   color: var(--ui-subtle);
+}
+
+.purchase-head p .purchase-currency-icon {
+  color: var(--ui-warning);
+  font-size: 16px;
+}
+
+.purchase-total .purchase-currency-icon {
+  font-size: 20px;
 }
 
 .purchase-head p :deep(.item-image--sm),

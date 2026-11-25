@@ -96,12 +96,29 @@
 | Docker | Docker 20+、Docker Compose 2+、Node 20.19.6（镜像内置） |
 | 二进制发布版 | 无需安装 Node.js |
 
+# 升级游戏连接服务（无在线挂机时可直接执行；有在线账号时需先停止挂机，或追加 --disconnect-sessions 确认断开重连）
+bash ./update.sh host
+bash ./update.sh host --disconnect-sessions
+
+# 停止服务
+bash ./stop.sh backend      # 只停后端，挂机中的游戏连接继续保活
+bash ./stop.sh all          # 停止后端和会话宿主，同时断开所有游戏连接
+bash ./stop.sh host         # 只停会话宿主并断开游戏连接
+
 推荐通过 Corepack 启用项目指定版本的 pnpm：
 
 ```bash
 corepack enable
 pnpm --version
 ```
+
+- `bash ./stop.sh` 不带参数时只打印用法说明，不会直接停机，避免误操作断开在线游戏。
+- `update.sh` 和面板的「拉取并更新」会逐项核对正在服务的前后端。仅前端变化时切换静态目录，仅后端变化时复用当前前端并切换后端。两者都已生效时直接结束。构建按需使用本机 Turbo 缓存。
+- 旧发布包没有构建指纹，首次应用时会重新发布所选前后端以记录基线。此后即使先单独更新或回退，仍按实际运行版本判断。
+- 日常更新保留在线会话宿主。宿主自身或共享协议有变化时会提示单独维护；可在结束挂机后执行 `bash ./update.sh host`（或确认断开时执行 `bash ./update.sh host --disconnect-sessions`）升级宿主并补齐版本记录，停服后执行 `bash ./stop.sh all && bash ./start.sh` 也会在宿主有更新或缺少版本记录时自动重新构建。候选后端与宿主 IPC 不兼容时保留原版本。切换后端失败时会恢复上一版，已打开的页面仍可加载上一版的静态资源。
+- 构建与打包默认只输出精简的阶段进度，出错时会自动打印错误详情；如需排查完整构建输出，可追加 `--verbose`（或 `-v`），也可以设置环境变量 `FARM_DEPLOY_VERBOSE=1`。
+
+源码部署通过 `bash start.sh` 启动后，可以在「设置 → 系统设置 → 版本更新」检查当前分支，选择「仅拉取代码」或「拉取并更新」。构建期间可以继续使用面板。新版就绪后页面会在当前位置刷新，有未保存的设置时会先提示。在终端更新时，先执行 `git pull --ff-only`，再执行 `bash update.sh all`。
 
 ### 源码运行
 

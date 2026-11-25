@@ -103,8 +103,8 @@ function compareComponents(targets, running) {
 }
 
 function hostMaintenanceMessage(state) {
-    if (state === 'changed') return '游戏连接服务有更新，本次继续使用在线版本。可在结束挂机后单独升级。';
-    if (state === 'unknown') return '在线的游戏连接服务缺少版本记录，暂时无法判断是否需要升级。当前挂机继续。';
+    if (state === 'changed') return '游戏连接服务有更新，本次继续使用在线版本。可在结束挂机后执行 bash ./update.sh host 升级。';
+    if (state === 'unknown') return '在线的游戏连接服务缺少版本记录，暂时无法判断是否需要升级。当前挂机继续；可在结束挂机后执行 bash ./update.sh host 升级并补齐版本记录。';
     return '';
 }
 
