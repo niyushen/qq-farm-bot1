@@ -100,6 +100,22 @@ function mountCommerceRoutes(app: Application, ctx: AdminContext): void {
         ctx.provider.operateAutumnActivity(accountId, req.params.key, req.params.action, req.body)
     )));
 
+    app.get('/api/activities/maple-market', withAccount((accountId: string) => ctx.provider.getMapleMarketActivity(accountId)));
+    app.get('/api/activities/maple-market/purchase-log', withAccount((accountId: string) => ctx.provider.getMapleMarketPurchaseLog(accountId)));
+    app.get('/api/activities/maple-market/friend-quotes', withAccount((accountId: string) => ctx.provider.getMapleMarketComparison(accountId)));
+    app.post('/api/activities/maple-market/friend-quotes', withAccount((accountId: string) => ctx.provider.startMapleMarketComparison(accountId)));
+    app.post('/api/activities/maple-market/friend-quotes/sell', withAccount((accountId: string, req: Request) => (
+        ctx.provider.sellToMapleMarketFriend(accountId, req.body?.gid, req.body?.count, req.body?.expectedUnitPrice)
+    )));
+    app.post('/api/activities/maple-market/claim-seed', withAccount((accountId: string) => ctx.provider.claimMapleMarketSeed(accountId)));
+    app.post('/api/activities/maple-market/claim-commission', withAccount((accountId: string) => ctx.provider.claimMapleMarketCommission(accountId)));
+    app.post('/api/activities/maple-market/sell', withAccount((accountId: string, req: Request) => (
+        ctx.provider.sellMapleMarketCrop(accountId, req.body?.count, req.body?.expectedUnitPrice)
+    )));
+    app.post('/api/activities/maple-market/exchange', withAccount((accountId: string, req: Request) => (
+        ctx.provider.exchangeMapleMarketGoods(accountId, req.body?.goodsId, req.body?.count, req.body?.expectedUnitPrice)
+    )));
+
     app.get('/api/props-shop', withAccount((accountId: string) => ctx.provider.getPropsShop(accountId)));
     app.post('/api/props-shop/purchase', withAccount((accountId: string, req: Request) => (
         ctx.provider.purchaseProps(accountId, req.body?.goodsId, req.body?.count, req.body?.expectedOffer)

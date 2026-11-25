@@ -296,6 +296,8 @@ async function loadProto(): Promise<void> {
     types.ClaimQixiBridgeRewardsRequest = root.lookupType('gamepb.activitypb.ClaimQixiBridgeRewardsRequest');
     types.GiftQixiSachetRequest = root.lookupType('gamepb.activitypb.GiftQixiSachetRequest');
     types.CharityRedFlowerOperateRequest = root.lookupType('gamepb.activitypb.CharityRedFlowerOperateRequest');
+    types.ActivityOperateReply = root.lookupType('gamepb.activitypb.ActivityOperateReply');
+    types.MapleMarketOperateRequest = root.lookupType('gamepb.activitypb.MapleMarketOperateRequest');
     for (const name of ['PetDiaryOperateRequest', 'PetDiaryOperateReply', 'PetDiaryGetGroupReply']) {
         types[name] = root.lookupType(`gamepb.activitypb.${name}`);
     }
