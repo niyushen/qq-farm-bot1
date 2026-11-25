@@ -9,7 +9,6 @@ const { performance } = require('node:perf_hooks');
 const { CONFIG } = require('../config/config');
 const { ensureDataDir, getResourcePath } = require('../config/runtime-paths');
 const { log, logWarn } = require('./utils');
-const { createHttpRequestScope } = require('./http-request-scope');
 
 const TSDK_VERSION = 'v3.9.0.1795522128';
 const TSDK_SHA256 = 'c4ed27d0d1a6026402285a5b6a638608725fb0505b9ddf03ba74586d0cc5f136';

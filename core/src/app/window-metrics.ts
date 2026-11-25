@@ -21,7 +21,7 @@ class WindowMetrics {
         if (!bucket.metrics.has(key) && bucket.metrics.size >= this.maxKeys) key = 'overflow';
         let metric = bucket.metrics.get(key);
         if (!metric) {
-            metric = { count: 0, sum: 0, max: 0, histogram: distribution ? Array(LIMITS.length).fill(0) : null };
+            metric = { count: 0, sum: 0, max: 0, histogram: distribution ? Array.from({length: LIMITS.length}).fill(0) : null };
             bucket.metrics.set(key, metric);
         }
         metric.count++;
@@ -40,7 +40,7 @@ class WindowMetrics {
         for (const bucket of this.buckets) for (const [key, metric] of bucket.metrics) {
             let result = merged.get(key);
             if (!result) {
-                result = { count: 0, sum: 0, max: 0, histogram: metric.histogram ? Array(LIMITS.length).fill(0) : null };
+                result = { count: 0, sum: 0, max: 0, histogram: metric.histogram ? Array.from({length: LIMITS.length}).fill(0) : null };
                 merged.set(key, result);
             }
             result.count += metric.count;

@@ -274,6 +274,8 @@ class AccountTaskRunner {
             reject = fail;
         });
         let recorded = false;
+        // task 在下方构造，但 resolve/reject 的收尾回调会先于它被调用，这里用 let 前向声明。
+        let task: QueuedTask<T>;
         const finish = (error?: any) => {
             if (recorded) return;
             recorded = true;
@@ -283,7 +285,7 @@ class AccountTaskRunner {
         const fail = reject;
         resolve = value => { finish(); done(value); };
         reject = error => { finish(error || new Error('任务取消')); fail(error); };
-        const task: QueuedTask<T> = {
+        task = {
             name: taskName,
             priority,
             dedupeKey,
@@ -519,7 +521,7 @@ class AccountTaskRunner {
         };
     }
 
-    private findMostUrgentDeadlineTask(now: number): QueuedTask<any> | null {
+    private findMostUrgentDeadlineTask(_now: number): QueuedTask<any> | null {
         let urgent: QueuedTask<any> | null = null;
         for (const task of this.queue) {
             if (task.deadlineMonoAt === undefined) continue;
