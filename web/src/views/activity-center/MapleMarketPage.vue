@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { MallGoodsDto } from '@/stores/commerce'
 import { NButton } from 'naive-ui/es/button'
 import { NCard } from 'naive-ui/es/card'
 import { NInputNumber } from 'naive-ui/es/input-number'
@@ -10,6 +11,7 @@ import api, { getApiErrorMessage } from '@/api'
 import ActivityRulesDialog from '@/components/activity/ActivityRulesDialog.vue'
 import MapleMarketCompare from '@/components/activity/MapleMarketCompare.vue'
 import CommerceItemImage from '@/components/commerce/CommerceItemImage.vue'
+import PurchaseDialog from '@/components/commerce/PurchaseDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useAccountStore } from '@/stores/account'
 import { useToastStore } from '@/stores/toast'
@@ -77,6 +79,9 @@ type MainTab = 'shop' | 'exchange' | 'compare'
 defineEmits<{ back: [] }>()
 
 const DAILY_QUOTA_CAP = 8000
+const COIN_IMAGE = '/game-config/seed_images_named/seed_images/1033.png'
+const CROP_IMAGE = '/game-config/seed_images_named/seed_images/1032.png'
+const SEED_IMAGE = '/game-config/seed_images_named/seed_images/20307.png'
 const { currentAccountId } = storeToRefs(useAccountStore())
 const toast = useToastStore()
 const activeTab = ref<MainTab>('shop')
@@ -85,7 +90,6 @@ const pending = ref<'read' | 'claim' | 'commission' | 'sell' | 'exchange' | null
 const error = ref('')
 const rulesOpen = ref(false)
 const saleCount = ref(1)
-const exchangeCount = ref(1)
 const exchangeOffer = ref<MarketGoods | null>(null)
 const purchaseLogOpen = ref(false)
 const purchaseLogLoading = ref(false)
@@ -125,9 +129,9 @@ const walletItems = computed(() => {
   if (!s)
     return []
   return [
-    { key: 'coin', label: '福气币', count: s.coinBalance, icon: 'i-carbon-currency' },
-    { key: 'crop', label: '蜜薯', count: s.cropStock, icon: 'i-carbon-gift' },
-    { key: 'seed', label: '红薯种子', count: s.seedStock, icon: 'i-carbon-sprout' },
+    { key: 'coin', label: '福气币', count: s.coinBalance, image: COIN_IMAGE },
+    { key: 'crop', label: '蜜薯', count: s.cropStock, image: CROP_IMAGE },
+    { key: 'seed', label: '红薯种子', count: s.seedStock, image: SEED_IMAGE },
   ]
 })
 
@@ -168,17 +172,48 @@ const exchangeMax = computed(() => {
 /** 活动/兑换期内才允许下单；结束后所有商品都不可兑。 */
 const canExchangeNow = computed(() => state.value?.phase === 'active' || state.value?.phase === 'settlement')
 
-const exchangeShortfall = computed(() => {
+const exchangeDialogGoods = computed<MallGoodsDto | null>(() => {
   const offer = exchangeOffer.value
-  if (!offer)
-    return 0
-  return Math.max(0, offer.price * (exchangeCount.value || 0) - (state.value?.coinBalance ?? 0))
-})
-
-const exchangeInsufficient = computed(() => {
-  const offer = exchangeOffer.value
-  const wallet = state.value?.coinBalance ?? 0
-  return !!offer && offer.price * (exchangeCount.value || 0) > wallet
+  const current = state.value
+  if (!offer || !current)
+    return null
+  const action = goodsAction(offer)
+  return {
+    id: offer.id,
+    name: offer.name,
+    type: 0,
+    rewards: offer.items.map(item => ({
+      id: item.id,
+      count: item.count,
+      name: item.name,
+      image: item.image,
+      rarity: 0,
+    })),
+    price: {
+      id: 1033,
+      count: offer.price,
+      name: '福气币',
+      image: COIN_IMAGE,
+      rarity: 0,
+      balance: current.coinBalance,
+    },
+    originalPrice: null,
+    isFree: false,
+    limit: offer.limitTimes !== null
+      ? {
+          type: offer.limitType,
+          bought: Math.max(0, offer.limitTimes - (offer.remaining ?? 0)),
+          max: offer.limitTimes,
+          remaining: offer.remaining,
+        }
+      : null,
+    isLimited: offer.limitTimes !== null,
+    discountText: '',
+    isDiscounted: false,
+    discountEndTime: 0,
+    available: action.enabled,
+    purchasable: action.enabled,
+  }
 })
 
 const parsedRules = computed(() => (state.value?.rules || []).map((line) => {
@@ -198,14 +233,38 @@ function limitLabel(limitType: number) {
   return '限购'
 }
 
-/** 已兑完或活动阶段不允许时返回原因。福气币不足仍可打开兑换弹窗，在弹窗里提示还差多少。 */
-function goodsBlock(goods: MarketGoods): string | null {
-  if (goods.remaining === 0)
-    return goods.limitType === 1 ? '今日已兑完' : '已兑完'
-  const affordable = goods.price <= (state.value?.coinBalance ?? 0)
-  if (!goods.exchangeable && (affordable || !canExchangeNow.value))
-    return '暂不可兑'
-  return null
+/** 不可兑换时让按钮暗淡不可点；余额足够且开放兑换时才允许打开兑换确认弹窗。 */
+function goodsAction(goods: MarketGoods) {
+  if (goods.remaining === 0) {
+    return {
+      enabled: false,
+      label: goods.limitType === 1 ? '今日已兑完' : '已兑完',
+      reason: goods.limitType === 1 ? '今日兑换次数已达上限' : '活动兑换次数已达上限',
+    }
+  }
+  if (!canExchangeNow.value) {
+    return {
+      enabled: false,
+      label: '暂不可兑',
+      reason: '当前活动阶段不可兑换',
+    }
+  }
+  const balance = state.value?.coinBalance ?? 0
+  if (goods.price > balance) {
+    return {
+      enabled: false,
+      label: '兑换',
+      reason: `福气币不足，还差 ${formatter.format(goods.price - balance)}`,
+    }
+  }
+  if (!goods.exchangeable) {
+    return {
+      enabled: false,
+      label: '暂不可兑',
+      reason: '该商品当前暂不可兑换',
+    }
+  }
+  return { enabled: true, label: '兑换', reason: '' }
 }
 
 function setSaleCount(value: number | null) {
@@ -213,19 +272,19 @@ function setSaleCount(value: number | null) {
   saleCount.value = Math.max(1, Math.min(max, Math.floor(Number(value)) || 1))
 }
 
-function setExchangeCount(value: number | null) {
-  const max = Math.max(1, exchangeOffer.value?.remaining ?? 9999)
-  exchangeCount.value = Math.max(1, Math.min(max, Math.floor(Number(value)) || 1))
-}
-
 function selectExchange(offer: MarketGoods) {
-  exchangeCount.value = 1
+  if (!goodsAction(offer).enabled)
+    return
   exchangeOffer.value = offer
 }
 
 function closeExchange() {
   if (!pending.value)
     exchangeOffer.value = null
+}
+
+function confirmExchange(count: number) {
+  void request('exchange', count)
 }
 
 async function openPurchaseLog() {
@@ -254,7 +313,7 @@ async function openPurchaseLog() {
   }
 }
 
-async function request(action: 'read' | 'claim' | 'commission' | 'sell' | 'exchange' = 'read') {
+async function request(action: 'read' | 'claim' | 'commission' | 'sell' | 'exchange' = 'read', exchangeQty = 1) {
   const accountId = currentAccountId.value
   if (!accountId || pending.value || (action === 'claim' && !state.value?.canClaimSeed))
     return
@@ -264,7 +323,7 @@ async function request(action: 'read' | 'claim' | 'commission' | 'sell' | 'excha
   const offer = exchangeOffer.value
   if (action === 'sell' && (!quote?.canSell || !state.value || !saleIncome.value || saleCount.value > state.value.sellableCropStock))
     return
-  if (action === 'exchange' && (!offer || !Number.isSafeInteger(exchangeCount.value) || exchangeCount.value < 1 || exchangeCount.value > exchangeMax.value))
+  if (action === 'exchange' && (!offer || !Number.isSafeInteger(exchangeQty) || exchangeQty < 1 || exchangeQty > exchangeMax.value))
     return
   const revision = ++sequence
   pending.value = action
@@ -304,7 +363,7 @@ async function request(action: 'read' | 'claim' | 'commission' | 'sell' | 'excha
     else if (action === 'exchange' && offer) {
       const { data } = await api.post(`${path}/exchange`, {
         goodsId: offer.id,
-        count: exchangeCount.value,
+        count: exchangeQty,
         expectedUnitPrice: offer.price,
       }, options)
       if (revision !== sequence)
@@ -320,6 +379,8 @@ async function request(action: 'read' | 'claim' | 'commission' | 'sell' | 'excha
     if (!data.ok)
       throw new Error(data.error || '读取活动失败')
     state.value = data.data
+    if (exchangeOffer.value)
+      exchangeOffer.value = state.value?.goods.find(goods => goods.id === exchangeOffer.value?.id) || null
     if (state.value && saleCount.value > Math.max(1, state.value.sellableCropStock))
       saleCount.value = Math.max(1, state.value.sellableCropStock)
   }
@@ -407,7 +468,9 @@ onUnmounted(() => {
       </NTabs>
       <ul v-if="walletItems.length" class="maple-wallet" aria-label="活动道具余额">
         <li v-for="item in walletItems" :key="item.key" :title="item.label">
-          <span class="maple-wallet__icon" aria-hidden="true"><span :class="item.icon" /></span>
+          <span class="maple-wallet__icon" aria-hidden="true">
+            <CommerceItemImage :src="item.image" :alt="item.label" size="sm" />
+          </span>
           <span class="maple-wallet__label">{{ item.label }}</span>
           <b>{{ formatter.format(item.count) }}</b>
         </li>
@@ -615,19 +678,20 @@ onUnmounted(() => {
               </div>
               <div class="maple-goods-card__foot">
                 <span class="maple-price">
-                  <span class="i-carbon-currency" aria-hidden="true" />{{ formatter.format(goods.price) }}
+                  <CommerceItemImage :src="COIN_IMAGE" alt="福气币" size="sm" />
+                  {{ formatter.format(goods.price) }}
                 </span>
                 <NButton
-                  v-if="!goodsBlock(goods)"
-                  type="primary"
                   size="small"
-                  :disabled="!!pending"
-                  :aria-label="`兑换${goods.name}`"
+                  :type="goodsAction(goods).enabled ? 'primary' : 'default'"
+                  :secondary="!goodsAction(goods).enabled"
+                  :title="goodsAction(goods).reason || undefined"
+                  :disabled="!goodsAction(goods).enabled || !!pending"
+                  :aria-label="goodsAction(goods).enabled ? `兑换${goods.name}` : `${goods.name}（${goodsAction(goods).reason || goodsAction(goods).label}）`"
                   @click="selectExchange(goods)"
                 >
-                  兑换
+                  {{ goodsAction(goods).label }}
                 </NButton>
-                <span v-else class="maple-goods-card__state">{{ goodsBlock(goods) }}</span>
               </div>
             </li>
           </ul>
@@ -685,62 +749,15 @@ onUnmounted(() => {
       </NCard>
     </NModal>
 
-    <!-- 兑换确认弹窗 -->
-    <NModal :show="!!exchangeOffer" :mask-closable="!pending" :close-on-esc="!pending" @update:show="visible => !visible && closeExchange()">
-      <NCard class="maple-confirm" :title="exchangeOffer ? `兑换 · ${exchangeOffer.name}` : '兑换确认'" :bordered="false" :closable="!pending" role="dialog" aria-modal="true" @close="closeExchange">
-        <div v-if="exchangeOffer" class="maple-confirm__body">
-          <section class="maple-ledger" aria-label="将获得">
-            <h4>将获得</h4>
-            <ul>
-              <li v-for="item in exchangeOffer.items" :key="item.id">
-                <CommerceItemImage :src="item.image" :alt="item.name" size="sm" />
-                <span class="maple-ledger__name">{{ item.name }}</span>
-                <b>×{{ formatter.format(item.count * (exchangeCount || 0)) }}</b>
-              </li>
-            </ul>
-          </section>
-          <div class="maple-confirm__quantity">
-            <span>兑换份数</span>
-            <NInputNumber
-              :value="exchangeCount"
-              :min="1"
-              :max="Math.max(1, exchangeOffer.remaining ?? 9999)"
-              :disabled="!!pending"
-              button-placement="both"
-              aria-label="兑换份数"
-              @update:value="setExchangeCount"
-            />
-            <NButton secondary :disabled="!!pending || exchangeMax <= 0 || exchangeCount >= exchangeMax" @click="setExchangeCount(exchangeMax)">
-              最大
-            </NButton>
-          </div>
-          <section class="maple-ledger" aria-label="将消耗">
-            <h4>将消耗</h4>
-            <ul>
-              <li :class="{ 'is-short': exchangeInsufficient }">
-                <span class="maple-ledger__coin" aria-hidden="true"><span class="i-carbon-currency" /></span>
-                <span class="maple-ledger__name">福气币</span>
-                <small>持有 {{ formatter.format(state?.coinBalance || 0) }}</small>
-                <b>×{{ formatter.format(exchangeOffer.price * (exchangeCount || 0)) }}</b>
-              </li>
-            </ul>
-          </section>
-          <p v-if="exchangeInsufficient" class="maple-confirm__error" role="alert">
-            <span class="i-carbon-warning-alt" aria-hidden="true" />福气币不足，还差 {{ formatter.format(exchangeShortfall) }}
-          </p>
-        </div>
-        <template #footer>
-          <div class="maple-confirm__actions">
-            <NButton :disabled="!!pending" @click="closeExchange">
-              取消
-            </NButton>
-            <NButton type="primary" :loading="pending === 'exchange'" :disabled="!!pending || exchangeInsufficient || exchangeCount < 1" @click="request('exchange')">
-              确认兑换
-            </NButton>
-          </div>
-        </template>
-      </NCard>
-    </NModal>
+    <PurchaseDialog
+      :open="!!exchangeDialogGoods"
+      :goods="exchangeDialogGoods"
+      :limit-label="exchangeOffer ? limitLabel(exchangeOffer.limitType) : undefined"
+      :pending="pending === 'exchange'"
+      verb="兑换"
+      @close="closeExchange"
+      @confirm="confirmExchange"
+    />
   </section>
 </template>
 
@@ -872,9 +889,14 @@ onUnmounted(() => {
   height: 24px;
   place-items: center;
   border-radius: 999px;
-  color: var(--ui-primary);
   background: var(--ui-primary-soft);
-  font-size: 14px;
+}
+
+.maple-wallet__icon :deep(.item-image--sm) {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
 }
 
 .maple-wallet__label {
@@ -1460,19 +1482,15 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-.maple-price > span {
-  color: var(--ui-warning);
-  font-size: 16px;
+.maple-price :deep(.item-image--sm) {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
 }
 
 .maple-goods-card.is-off .maple-price {
   color: var(--ui-subtle);
-}
-
-.maple-goods-card__state {
-  color: var(--ui-subtle);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* —— 活动说明 —— */
@@ -1588,124 +1606,6 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.maple-confirm {
-  display: flex;
-  width: min(440px, calc(100vw - 32px));
-  max-height: min(88dvh, 900px);
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.maple-confirm :deep(.n-card-header),
-.maple-confirm :deep(.n-card__footer) {
-  flex: none;
-}
-
-.maple-confirm :deep(.n-card-content) {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.maple-confirm__body {
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
-}
-
-.maple-confirm__quantity {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  color: var(--ui-muted);
-  font-size: 13px;
-}
-
-.maple-ledger h4 {
-  margin: 0 0 6px;
-  color: var(--ui-muted);
-  font-size: 12px;
-  font-weight: var(--fw-600);
-}
-
-.maple-ledger ul {
-  margin: 0;
-  padding: 2px 14px;
-  border-radius: 12px;
-  background: var(--ui-surface-soft);
-  list-style: none;
-}
-
-.maple-ledger li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 46px;
-  font-size: 14px;
-}
-
-.maple-ledger__coin {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--ui-primary);
-  background: var(--ui-primary-soft);
-  font-size: 18px;
-}
-
-.maple-ledger__name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  color: var(--ui-ink);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.maple-ledger small {
-  flex: none;
-  color: var(--ui-subtle);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.maple-ledger b {
-  flex: none;
-  color: var(--ui-ink);
-  font-weight: var(--fw-650);
-  font-variant-numeric: tabular-nums;
-}
-
-.maple-ledger li.is-short small,
-.maple-ledger li.is-short b {
-  color: var(--ui-danger);
-}
-
-.maple-confirm__error {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--ui-danger);
-  font-size: 13px;
-  font-weight: var(--fw-600);
-}
-
-.maple-confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 @container maple-content (min-width: 980px) {
   .maple-shop {
     grid-template-areas:
@@ -1732,10 +1632,6 @@ onUnmounted(() => {
   .maple-goods {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
-  }
-
-  .maple-confirm__actions > :deep(.n-button) {
-    flex: 1;
   }
 }
 </style>
