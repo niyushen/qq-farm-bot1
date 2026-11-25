@@ -7,12 +7,14 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import {
-  buildEventLabelMap,
+  getEventDisplayName,
+  getLogEvent,
   getModulePath,
   LOG_CACHE_LIMIT,
   LOG_EVENTS,
   LOG_LEVELS,
   LOG_MODULES,
+  logEventMatches,
   PARENT_MODULE_QUERY,
   SUBMODULE_BY_MODULE,
   SUBMODULE_BY_TAG,
@@ -45,7 +47,6 @@ const { currentAccountId } = storeToRefs(accountStore)
 const modules = LOG_MODULES
 const events = LOG_EVENTS
 const levels = LOG_LEVELS
-const eventLabelMap = buildEventLabelMap()
 
 const logContainer = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
@@ -81,13 +82,14 @@ watch(() => filter.module, () => {
 // 二级子模块匹配：按 module 或 event 白名单（前端过滤，后端接口不变）
 function logMatchesSubmoduleKey(log: any, key: string): boolean {
   const byModule = SUBMODULE_BY_MODULE[key]
-  if (byModule && String(log?.meta?.module || '') === byModule)
+  if (byModule && String(log?.meta?.module || log?.module || '') === byModule)
     return true
   const byTag = SUBMODULE_BY_TAG[key]
   if (byTag && String(log?.tag || '') === byTag)
     return true
   const events = SUBMODULE_EVENTS[key]
-  if (events && events.includes(String(log?.meta?.event || '')))
+  // 白名单里既有中文也有英文写法，必须按别名互认，否则中文日志匹配不到
+  if (events && events.some((e: string) => logEventMatches(log, e)))
     return true
   return false
 }
@@ -123,11 +125,14 @@ function getLogLevel(log: any): LogLevel {
 }
 
 function isRanchLog(log: any) {
-  return log.meta?.module === 'ranch' || String(log.meta?.event || '').startsWith('ranch_') || log.tag === '牧场'
+  return log.meta?.module === 'ranch' || log.module === 'ranch' || getLogEvent(log).startsWith('ranch_') || log.tag === '牧场'
 }
 function getEventLabel(event?: string) {
   const key = event || ''
-  return eventLabelMap[key] || (/[\u3400-\u9FFF]/u.test(key) ? key : '')
+  if (!key)
+    return ''
+  // 中文事件名本身就是可读标签；英文 code 用 LOG_EVENTS 的中文标签兜底
+  return getEventDisplayName(key)
 }
 
 function logDateKey(log: any): string {
@@ -162,6 +167,11 @@ interface LogGroup {
 const CYCLE_EVENTS = ['选择种子', '购买种子', '种植种子', '农场循环']
 const CYCLE_WINDOW_MS = 60_000
 
+/** 循环块判定用的 event 读取：统一走 getLogEvent，兼容顶层/meta 两种写法 */
+function cycleEventOf(log: any): string {
+  return getLogEvent(log)
+}
+
 function cycleTs(log: any): number {
   return Number(log?.ts) || Date.parse(String(log?.time || '').replace(' ', 'T')) || 0
 }
@@ -169,7 +179,7 @@ function cycleTs(log: any): number {
 // 找出从 i 开始的一个完整循环块 {logs, endIdx, inners}，失败返回 null。
 // inners = 块内被跳过的非循环日志，必须随聚合一起保留，否则会吞日志。
 function findCycle(logs: any[], i: number): { logs: any[], endIdx: number, inners: any[] } | null {
-  if (String(logs[i]?.meta?.event || '') !== CYCLE_EVENTS[0])
+  if (cycleEventOf(logs[i]) !== CYCLE_EVENTS[0])
     return null
   const block: any[] = [logs[i]]
   const inners: any[] = []
@@ -177,7 +187,7 @@ function findCycle(logs: any[], i: number): { logs: any[], endIdx: number, inner
   for (let step = 1; step < CYCLE_EVENTS.length && j < logs.length; step++) {
     let found = -1
     for (let k = j; k < logs.length; k++) {
-      if (String(logs[k]?.meta?.event || '') === CYCLE_EVENTS[step]) {
+      if (cycleEventOf(logs[k]) === CYCLE_EVENTS[step]) {
         found = k
         break
       }
@@ -280,7 +290,7 @@ const logGroups = computed<LogGroup[]>(() => {
   const collapsed = collapseCycles(allLogs.value).slice(-props.maxLogs)
   for (const log of collapsed) {
     const level = getLogLevel(log)
-    const signature = `${props.levelInSignature ? `${level}|` : ''}${log.tag}|${log.meta?.event || ''}|${String(log.msg || '').replace(/\d+/g, '#')}`
+    const signature = `${props.levelInSignature ? `${level}|` : ''}${log.tag}|${getLogEvent(log)}|${String(log.msg || '').replace(/\d+/g, '#')}`
     const last = groups[groups.length - 1]
     if (last && last.key === signature) {
       last.count += 1
@@ -507,7 +517,7 @@ function formatLogTime(timeStr: string) {
             <span class="log-row__time">{{ formatLogTime(group.log.time) }}</span>
             <span class="log-row__tag">{{ getModulePath(group.log) }}</span>
             <span class="log-row__body">
-              <span v-if="getEventLabel(group.log.meta?.event)" class="log-row__event">{{ getEventLabel(group.log.meta.event) }}</span>
+              <span v-if="getEventLabel(getLogEvent(group.log))" class="log-row__event">{{ getEventLabel(getLogEvent(group.log)) }}</span>
               <span class="log-row__msg">{{ group.log.msg }}</span>
               <button v-if="group.count > 1" class="log-row__repeat" :title="`${formatLogTime(group.firstTime)} 起重复 ${group.count} 次`" @click="toggleGroup(group.uid)">
                 ×{{ group.count }} · {{ expandedGroups[group.uid] ? '收起' : '展开' }}
@@ -518,7 +528,7 @@ function formatLogTime(timeStr: string) {
             <div v-for="(sub, si) in group.logs" :key="si" class="run-log-expanded__row">
               <span class="log-row__time">{{ formatLogTime(sub.time) }}</span>
               <span class="run-log-expanded__path">{{ getModulePath(sub) }}</span>
-              <span class="log-row__msg">{{ getEventLabel(sub.meta?.event) }} {{ sub.msg }}</span>
+              <span class="log-row__msg">{{ getEventLabel(getLogEvent(sub)) }} {{ sub.msg }}</span>
             </div>
           </div>
         </template>

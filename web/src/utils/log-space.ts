@@ -15,9 +15,11 @@ export function resolveEntrySpace(entry: any): 'ranch' | 'farm' {
   if (declared === LOG_SPACE_RANCH || declared === LOG_SPACE_FARM)
     return declared
   const meta = entry?.meta || {}
-  if (String(meta.module || '') === LOG_SPACE_RANCH)
+  if (String(meta.module || entry?.module || '') === LOG_SPACE_RANCH)
     return LOG_SPACE_RANCH
-  if (String(meta.event || '').startsWith('ranch_'))
+  // event 可能落在顶层或 meta 内，两处都要认
+  const event = String(meta.event || entry?.event || '')
+  if (event.startsWith('ranch_'))
     return LOG_SPACE_RANCH
   if (String(entry?.tag || '') === '牧场')
     return LOG_SPACE_RANCH

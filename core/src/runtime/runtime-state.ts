@@ -44,6 +44,68 @@ interface LogFilters {
 /** 每个空间日志池的独立上限（条）；牧场池与农场池各自计数、各自截断 */
 const LOG_POOL_LIMIT = 2000;
 
+/**
+ * 事件名别名表：后端产出的 event 中英文混用（同一语义两种写法），
+ * 前端筛选项历史上用英文 code、日志实际用中文名。
+ * 这里登记互认关系，使「按英文筛选项筛选」能命中中文日志，反之亦然。
+ * key 与 value 都可作为筛选目标，两者互相命中。
+ */
+const LOG_EVENT_ALIASES: Record<string, string[]> = {
+    // —— 农场 ——
+    farm_cycle: ['农场循环'],
+    '农场循环': ['farm_cycle'],
+    harvest_crop: ['收获作物'],
+    '收获作物': ['harvest_crop'],
+    remove_plant: ['铲除植物'],
+    '铲除植物': ['remove_plant'],
+    plant_seed: ['种植种子'],
+    '种植种子': ['plant_seed'],
+    seed_pick: ['选择种子'],
+    '选择种子': ['seed_pick'],
+    seed_buy: ['购买种子'],
+    '购买种子': ['seed_buy'],
+    fertilize: ['常规施肥', '多季节施肥', '手动施肥', '一键施肥'],
+    '常规施肥': ['fertilize'],
+    '多季节施肥': ['fertilize'],
+    '手动施肥': ['fertilize'],
+    '一键施肥': ['fertilize'],
+    harvest_after_fertilize: ['施肥后收获作物'],
+    '施肥后收获作物': ['harvest_after_fertilize'],
+    lands_notify: ['土地推送通知'],
+    '土地推送通知': ['lands_notify'],
+    upgrade_land: ['升级土地'],
+    '升级土地': ['upgrade_land'],
+    unlock_land: ['解锁土地'],
+    '解锁土地': ['unlock_land'],
+    // —— 好友 ——
+    friend_cycle: ['好友巡查循环', '开始好友巡查'],
+    '好友巡查循环': ['friend_cycle'],
+    '开始好友巡查': ['friend_cycle'],
+    visit_friend: ['照顾好友', '进入农场'],
+    '照顾好友': ['visit_friend'],
+    '进入农场': ['visit_friend'],
+    steal_cycle: ['偷菜巡查'],
+    '偷菜巡查': ['steal_cycle'],
+    // —— 仓库 ——
+    // —— 任务 ——
+    task_scan: ['扫描任务', '扫描活跃奖励'],
+    '扫描任务': ['task_scan'],
+    '扫描活跃奖励': ['task_scan'],
+    task_claim: ['领取任务', '领取活跃奖励'],
+    '领取任务': ['task_claim'],
+    '领取活跃奖励': ['task_claim'],
+    // —— 奖励 ——
+    daily_share: ['daily_share'],
+    vip_daily_gift: ['vip_daily_gift'],
+    month_card_gift: ['month_card_gift'],
+    mall_free_gifts: ['mall_free_gifts'],
+    illustrated_rewards: ['图鉴奖励'],
+    '图鉴奖励': ['illustrated_rewards'],
+    email_rewards: ['email_rewards'],
+    // —— 牧场 ——
+    ranch_automation: ['ranch_automation'],
+};
+
 function createRuntimeState(options: RuntimeStateOptions) {
     const {
         store,
@@ -110,14 +172,25 @@ function createRuntimeState(options: RuntimeStateOptions) {
         const level = tag === '错误' ? 'error' : 'info';
         runtimeLogger[level](msg, { tag, ...extra });
         const moduleName = (tag === '系统' || tag === '错误') ? 'system' : '';
+        // module / event 必须同时写进 meta：前端按 meta.event 读事件、
+        // resolveLogSpace 也按 meta.event 判牧场空间。若只展开到顶层，
+        // 事件筛选、二级子模块、逐块务农聚合会全部失效。
+        const extraModule = String(extra.module || '').trim();
+        const extraEvent = String(extra.event || '').trim();
+        const meta: Record<string, any> = moduleName ? { module: moduleName } : {};
+        if (extraModule) meta.module = extraModule;
+        if (extraEvent) meta.event = extraEvent;
         const entry: LogEntry = {
             time,
             tag,
             msg,
-            meta: moduleName ? { module: moduleName } : {},
+            meta,
             ts: Date.now(),
             ...extra,
         };
+        // extra 展开在顶层会覆盖 meta，这里确保顶层副本与 meta 一致。
+        if (extraModule) entry.module = extraModule;
+        if (extraEvent) entry.event = extraEvent;
         entry._searchText = `${entry.msg || ''} ${entry.tag || ''} ${JSON.stringify(entry.meta || {})}`.toLowerCase();
         appendLog(entry);
         runtimeEvents.emit('log', entry);
@@ -228,6 +301,24 @@ function createRuntimeState(options: RuntimeStateOptions) {
         };
     }
 
+    /**
+     * 事件名匹配：后端产出的 event 中英文混用（如「农场循环」与 farm_cycle 各指一类），
+     * 而前端筛选项历史上用的是英文 code。这里同时认 meta.event / 顶层 event，
+     * 并支持「英文 code ↔ 中文名」互认，避免筛选项必须与日志字面完全一致。
+     */
+    function matchesLogEvent(entry: any, eventName: string): boolean {
+        const target = String(eventName || '').trim();
+        if (!target) return true;
+        const candidates = [
+            String((entry && entry.meta || {}).event || ''),
+            String((entry && entry.event) || ''),
+        ].filter(Boolean);
+        if (candidates.includes(target)) return true;
+        // 别名互认：同一语义的中英文写法视为同一事件
+        const alias = LOG_EVENT_ALIASES[target] || [];
+        return candidates.some(c => alias.includes(c));
+    }
+
     function filterLogs(list: LogEntry[], filters: LogFilters = {}): LogEntry[] {
         const f = filters || {};
         const keyword = String(f.keyword || '').trim().toLowerCase();
@@ -261,7 +352,7 @@ function createRuntimeState(options: RuntimeStateOptions) {
                 });
                 if (!matched) return false;
             }
-            if (eventName && String((l.meta || {}).event || '') !== eventName) return false;
+            if (eventName && !matchesLogEvent(l, eventName)) return false;
             if (isWarn !== undefined && isWarn !== null && String(isWarn) !== '') {
                 const expected = String(isWarn) === '1' || String(isWarn).toLowerCase() === 'true';
                 if (!!l.isWarn !== expected) return false;
@@ -290,10 +381,12 @@ function createRuntimeState(options: RuntimeStateOptions) {
         normalizeStatusForPanel,
         buildDefaultStatus,
         filterLogs,
+        matchesLogEvent,
     };
 }
 
 module.exports = {
     createRuntimeState,
     LOG_POOL_LIMIT,
+    LOG_EVENT_ALIASES,
 };

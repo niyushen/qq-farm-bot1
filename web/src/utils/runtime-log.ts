@@ -76,8 +76,8 @@ export function normalizeRuntimeLog(input: any, isAccountLog = false): RuntimeLo
     msg,
     level,
     source,
-    module: String(meta.module || (source === 'account' ? 'system' : '')),
-    event: String(meta.event || action),
+    module: String(meta.module || raw.module || (source === 'account' ? 'system' : '')),
+    event: String(meta.event || raw.event || action),
     meta,
     ...(action ? { action } : {}),
   }

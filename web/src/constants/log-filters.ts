@@ -46,9 +46,81 @@ export const SUBMODULE_BY_TAG: Record<string, string> = {
   'farm:warehouse': '仓库',
 }
 export const SUBMODULE_EVENTS: Record<string, string[]> = {
-  'farm:land': ['farm_cycle', 'plant_seed', '土地推送通知', '种植种子', '农场循环', '铲除植物', '收获后状态分类'],
+  'farm:land': ['farm_cycle', 'plant_seed', '土地推送通知', '种植种子', '农场循环', '铲除植物', '收获后状态分类', 'remove_plant', 'lands_notify'],
   'ranch:friend': ['ranch_cleanFriend', 'ranch_steal', 'ranch_produceFriend', '好友牧场清理', '牧场产物偷取'],
   'ranch:warehouse': ['ranch_sell', 'ranch_feed', '出售牧场产物', '牧场罐头喂养'],
+}
+
+/**
+ * 事件名归一化：后端 log() 把 event 展开到顶层，历史上又只落在 meta.event，
+ * 两种写法都出现过（详见 core/src/runtime/runtime-state.ts 的 log()）。
+ * 统一从这里读取，避免各处各写一份而漏判。
+ */
+export function getLogEvent(log: any): string {
+  const meta = log?.meta || {}
+  return String(meta.event || log?.event || '')
+}
+
+/**
+ * 事件名别名：同一语义的中英文互认表，与后端 LOG_EVENT_ALIASES 保持一致。
+ * 用于「事件」下拉筛选按英文 code 命中中文日志，以及反之。
+ */
+export const LOG_EVENT_ALIASES: Record<string, string[]> = {
+  farm_cycle: ['农场循环'],
+  '农场循环': ['farm_cycle'],
+  harvest_crop: ['收获作物'],
+  '收获作物': ['harvest_crop'],
+  remove_plant: ['铲除植物'],
+  '铲除植物': ['remove_plant'],
+  plant_seed: ['种植种子'],
+  '种植种子': ['plant_seed'],
+  seed_pick: ['选择种子'],
+  '选择种子': ['seed_pick'],
+  seed_buy: ['购买种子'],
+  '购买种子': ['seed_buy'],
+  fertilize: ['常规施肥', '多季节施肥', '手动施肥', '一键施肥'],
+  '常规施肥': ['fertilize'],
+  '多季节施肥': ['fertilize'],
+  '手动施肥': ['fertilize'],
+  '一键施肥': ['fertilize'],
+  harvest_after_fertilize: ['施肥后收获作物'],
+  '施肥后收获作物': ['harvest_after_fertilize'],
+  lands_notify: ['土地推送通知'],
+  '土地推送通知': ['lands_notify'],
+  upgrade_land: ['升级土地'],
+  '升级土地': ['upgrade_land'],
+  unlock_land: ['解锁土地'],
+  '解锁土地': ['unlock_land'],
+  friend_cycle: ['好友巡查循环', '开始好友巡查'],
+  '好友巡查循环': ['friend_cycle'],
+  '开始好友巡查': ['friend_cycle'],
+  visit_friend: ['照顾好友', '进入农场'],
+  '照顾好友': ['visit_friend'],
+  '进入农场': ['visit_friend'],
+  steal_cycle: ['偷菜巡查'],
+  '偷菜巡查': ['steal_cycle'],
+  task_scan: ['扫描任务', '扫描活跃奖励'],
+  '扫描任务': ['task_scan'],
+  '扫描活跃奖励': ['task_scan'],
+  task_claim: ['领取任务', '领取活跃奖励'],
+  '领取任务': ['task_claim'],
+  '领取活跃奖励': ['task_claim'],
+  illustrated_rewards: ['图鉴奖励'],
+  '图鉴奖励': ['illustrated_rewards'],
+}
+
+/** 判断某条日志的 event 是否命中目标事件（含别名互认） */
+export function logEventMatches(log: any, target: string): boolean {
+  const key = String(target || '').trim()
+  if (!key)
+    return true
+  const actual = getLogEvent(log)
+  if (!actual)
+    return false
+  if (actual === key)
+    return true
+  const aliases = LOG_EVENT_ALIASES[key] || []
+  return aliases.includes(actual)
 }
 
 // 一级模块 -> 后端 module 参数（逗号分隔支持多选）；农场需含降级为子模块的 friend/warehouse
@@ -61,29 +133,39 @@ export const PARENT_MODULE_QUERY: Record<string, string> = {
 
 export const LOG_EVENTS: LogFilterOption[] = [
   { label: '所有事件', value: '' },
+  // —— 农场 ——
   { label: '农场巡查', value: 'farm_cycle' },
   { label: '收获作物', value: 'harvest_crop' },
   { label: '清理枯株', value: 'remove_plant' },
   { label: '种植种子', value: 'plant_seed' },
-  { label: '施加化肥', value: 'fertilize' },
-  { label: '土地推送', value: 'lands_notify' },
   { label: '选择种子', value: 'seed_pick' },
   { label: '购买种子', value: 'seed_buy' },
-  { label: '购买化肥', value: 'fertilizer_buy' },
-  { label: '开启礼包', value: 'fertilizer_gift_open' },
+  { label: '施加化肥', value: 'fertilize' },
+  { label: '施肥后收获作物', value: 'harvest_after_fertilize' },
+  { label: '临熟催熟', value: '临熟催熟' },
+  { label: '土地推送', value: 'lands_notify' },
+  { label: '收获后状态分类', value: '收获后状态分类' },
+  { label: '土地升级', value: 'upgrade_land' },
+  { label: '土地解锁', value: 'unlock_land' },
+  // —— 好友 ——
+  { label: '好友巡查', value: 'friend_cycle' },
+  { label: '访问好友', value: 'visit_friend' },
+  { label: '偷菜巡查', value: 'steal_cycle' },
+  // —— 仓库 ——
+  { label: '出售成功', value: 'sell_success' },
+  { label: '购买化肥', value: '购买化肥' },
+  { label: '开启礼包', value: '开启化肥礼包' },
+  // —— 任务 ——
   { label: '获取任务', value: 'task_scan' },
   { label: '完成任务', value: 'task_claim' },
+  // —— 奖励 ——
   { label: '免费礼包', value: 'mall_free_gifts' },
   { label: '分享奖励', value: 'daily_share' },
   { label: '会员礼包', value: 'vip_daily_gift' },
   { label: '月卡礼包', value: 'month_card_gift' },
   { label: '图鉴奖励', value: 'illustrated_rewards' },
   { label: '邮箱领取', value: 'email_rewards' },
-  { label: '出售成功', value: 'sell_success' },
-  { label: '土地升级', value: 'upgrade_land' },
-  { label: '土地解锁', value: 'unlock_land' },
-  { label: '好友巡查', value: 'friend_cycle' },
-  { label: '访问好友', value: 'visit_friend' },
+  // —— 牧场 ——
   { label: '牧场巡查', value: 'ranch_automation' },
   { label: '购买牧场商品', value: 'ranch_buy' },
   { label: '放养幼崽', value: 'ranch_place' },
@@ -97,24 +179,19 @@ export const LOG_EVENTS: LogFilterOption[] = [
   { label: '解锁牧场棚', value: 'ranch_activateShed' },
   { label: '升级牧场建筑', value: 'ranch_upgrade' },
   { label: '完成建筑升级', value: 'ranch_completeUpgrade' },
-  { label: '领取牧场任务', value: 'ranch_claimTasks' },
-  { label: '牧场成长任务', value: 'ranch_reportEntry' },
+  { label: '领取牧场任务', value: 'ranch_task_claim' },
   { label: '牧场集市兑换', value: 'ranch_exchange' },
   { label: '牧场图鉴奖励', value: 'ranch_claimIllustrated' },
-  { label: '牧场每日分享', value: 'ranch_claimDailyShare' },
-  { label: '购买牧场罐头', value: 'ranch_buyCan' },
+  { label: '牧场每日分享', value: 'ranch_daily_share' },
+  { label: '牧场每日福利', value: 'ranch_daily_benefit' },
   { label: '牧场产物偷取', value: 'ranch_steal' },
   { label: '帮好友生产', value: 'ranch_produceFriend' },
   { label: '抚摸好友动物', value: 'ranch_stroke' },
-  { label: '放生动物', value: 'ranch_release' },
   { label: '放蚊子', value: 'ranch_putMosquito' },
   { label: '好友牧场清理', value: 'ranch_cleanFriend' },
   { label: '拜访好友牧场', value: 'ranch_friend' },
   { label: '离开好友牧场', value: 'ranch_friend_leave' },
   { label: '恢复场景', value: 'ranch_scene_restore' },
-  { label: '牧场任务', value: 'ranch_task_claim' },
-  { label: '牧场分享礼包', value: 'ranch_daily_share' },
-  { label: '牧场每日福利', value: 'ranch_daily_benefit' },
 ]
 
 export const LOG_LEVELS: LogFilterOption[] = [
@@ -129,10 +206,40 @@ export function buildEventLabelMap(): Record<string, string> {
   return Object.fromEntries(LOG_EVENTS.filter(e => e.value).map(e => [e.value, e.label]))
 }
 
+// 事件标签映射缓存：getEventDisplayName 会在每条日志上调用，不能每次重建对象
+let eventLabelMapCache: Record<string, string> | null = null
+function getEventLabelMap(): Record<string, string> {
+  if (!eventLabelMapCache)
+    eventLabelMapCache = buildEventLabelMap()
+  return eventLabelMapCache
+}
+
+/**
+ * 事件显示名：优先用 LOG_EVENTS 的中文标签；
+ * 未登记的事件（如「多季节施肥」）直接显示原名（中文原名本身就是可读标签）。
+ */
+export function getEventDisplayName(event: string): string {
+  const key = String(event || '')
+  if (!key)
+    return ''
+  const map = getEventLabelMap()
+  if (map[key])
+    return map[key]
+  // 别名表里有登记 → 用目标项的标签（如 friend_cycle → 好友巡查）
+  const aliases = LOG_EVENT_ALIASES[key]
+  if (aliases?.length) {
+    for (const alias of aliases) {
+      if (map[alias])
+        return map[alias]
+    }
+  }
+  return key
+}
+
 // 日志的模块路径标签（一级/二级），与筛选分类保持一致
 export function getModulePath(log: any): string {
-  const module = String(log?.meta?.module || '')
-  const event = String(log?.meta?.event || '')
+  const module = String(log?.meta?.module || log?.module || '')
+  const event = getLogEvent(log)
   const tag = String(log?.tag || '')
   // 二级（先判事件白名单，再判降级模块）
   for (const [key, events] of Object.entries(SUBMODULE_EVENTS)) {
