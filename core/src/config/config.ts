@@ -46,9 +46,9 @@ interface RuntimeConfig extends SystemConfig {
 // Verified in the official QQ PlayerLogin and Heartbeat from the 2026-11-25 capture.
 const DEFAULT_CLIENT_VERSION = '1.17.1.10_20261117';
 const DEFAULT_CLIENT_VERSION_UPDATED_AT = 1795572430356;
-// Independently verified from the official WeChat package 82 configuration on 2026-11-17.
-const DEFAULT_WX_CLIENT_VERSION = '1.17.0.4_20261117';
-const DEFAULT_WX_CLIENT_VERSION_UPDATED_AT = 1794891946317;
+// Verified from the official WeChat package 85 configuration on 2026-11-25.
+const DEFAULT_WX_CLIENT_VERSION = '1.17.1.10_20261117';
+const DEFAULT_WX_CLIENT_VERSION_UPDATED_AT = 1795586621000;
 const DEFAULT_TIME_ZONE = 'Asia/Shanghai';
 
 function resolveClientVersion(savedVersion: unknown, savedUpdatedAt: unknown, platform = 'qq'): { clientVersion: string; clientVersionUpdatedAt: number } {
