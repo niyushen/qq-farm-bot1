@@ -370,63 +370,55 @@ onUnmounted(() => lifecycle.abort())
         </button>
       </div>
 
-      <section class="maple-card maple-compare__board" :aria-labelledby="captionId">
-        <div class="maple-compare__table-wrap custom-scrollbar" tabindex="0">
-          <table>
-            <caption :id="captionId" class="sr-only">
-              好友铺子实际收购价排行
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" class="is-center">
-                  #
-                </th>
-                <th scope="col">
-                  铺主
-                </th>
-                <th scope="col" aria-sort="descending">
-                  收购价
-                </th>
-                <th scope="col">
-                  比自家
-                </th>
-                <th scope="col">
-                  剩余额度
-                </th>
-                <th scope="col">
-                  操作
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, index) in visibleRows" :key="row.gid" :class="{ 'is-featured': row.gid === bestOffer?.gid, 'is-self': row.gid === 0 }">
-                <td class="is-center">
+      <section class="maple-card maple-compare__board">
+        <div class="maple-compare__hscroll custom-scrollbar">
+          <div class="maple-grid" role="table" :aria-labelledby="captionId">
+            <span :id="captionId" class="sr-only">好友铺子实际收购价排行</span>
+            <div class="maple-grid__head" role="rowgroup">
+              <div class="maple-grid__row" role="row">
+                <span role="columnheader" class="is-center">#</span>
+                <span role="columnheader" class="is-start">铺主</span>
+                <span role="columnheader" aria-sort="descending">收购价</span>
+                <span role="columnheader">比自家</span>
+                <span role="columnheader">剩余额度</span>
+                <span role="columnheader">操作</span>
+              </div>
+            </div>
+            <div class="maple-grid__body custom-scrollbar" role="rowgroup" tabindex="0" aria-label="好友报价列表">
+              <div
+                v-for="(row, index) in visibleRows"
+                :key="row.gid"
+                class="maple-grid__row"
+                :class="{ 'is-featured': row.gid === bestOffer?.gid, 'is-self': row.gid === 0 }"
+                role="row"
+              >
+                <span role="cell" class="is-center">
                   <span class="maple-rank" :class="{ 'is-top': row.quote && index < 3 }">{{ index + 1 }}</span>
-                </td>
-                <th scope="row">
+                </span>
+                <span role="rowheader" class="is-start">
                   <span class="maple-owner">
                     <strong>{{ row.name }}</strong>
                     <span v-if="row.gid === 0" class="maple-chip">我</span>
                     <span v-else-if="row.gid === bestOffer?.gid" class="maple-chip is-best">最高</span>
                   </span>
-                </th>
+                </span>
                 <template v-if="row.quote">
-                  <td class="maple-compare__price">
+                  <span role="cell" class="maple-compare__price">
                     <strong>{{ formatter.format(row.quote.unitPrice) }}</strong>
                     <small v-if="row.quote.boost > 0">{{ formatter.format(row.quote.basePrice) }} + <em>{{ formatter.format(row.quote.boost) }}</em></small>
                     <small v-else-if="row.failed" class="is-danger">复查失败</small>
                     <small v-else>未暴击</small>
-                  </td>
-                  <td>
+                  </span>
+                  <span role="cell">
                     <span v-if="row.gid === 0 || !ownQuote" class="maple-diff">—</span>
                     <span v-else class="maple-diff" :class="diffTone(row.quote.unitPrice - ownQuote.unitPrice)">
                       {{ formatDiff(row.quote.unitPrice - ownQuote.unitPrice) }}
                     </span>
-                  </td>
-                  <td class="maple-quota">
+                  </span>
+                  <span role="cell" class="maple-quota">
                     {{ row.gid === 0 ? '不限' : formatter.format(row.quote.remainingQuota) }}
-                  </td>
-                  <td>
+                  </span>
+                  <span role="cell">
                     <NButton
                       v-if="row.quote.canSell && (row.gid === 0 || row.quote.remainingQuota > 0)"
                       :type="row.gid === bestOffer?.gid ? 'primary' : 'default'"
@@ -441,21 +433,19 @@ onUnmounted(() => lifecycle.abort())
                     <span v-else class="maple-chip is-muted">
                       {{ row.gid > 0 && row.quote.remainingQuota <= 0 ? '额度已满' : '暂不可售' }}
                     </span>
-                  </td>
+                  </span>
                 </template>
-                <td v-else colspan="4" class="maple-compare__empty-row">
+                <span v-else role="cell" class="maple-grid__span">
                   <span class="maple-chip" :class="row.failed ? 'is-danger' : 'is-muted'">
                     {{ row.failed ? '查询失败' : '暂无报价' }}
                   </span>
-                </td>
-              </tr>
-              <tr v-if="!visibleRows.length">
-                <td colspan="6" class="maple-compare__empty-filter">
-                  当前筛选条件下没有好友
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </span>
+              </div>
+              <p v-if="!visibleRows.length" class="maple-compare__empty-filter">
+                当前筛选条件下没有好友
+              </p>
+            </div>
+          </div>
         </div>
       </section>
     </template>
@@ -684,68 +674,86 @@ onUnmounted(() => lifecycle.abort())
   overflow: hidden;
 }
 
-.maple-compare__table-wrap {
-  overflow: auto;
-  max-block-size: min(32rem, 64vh);
+/* 窄屏横向滚动时表头和列表一起移动；纵向只滚动列表，表头保持在滚动区外。 */
+.maple-compare__hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
-table {
-  inline-size: 100%;
+.maple-grid {
+  --maple-cols: 48px minmax(120px, 1fr) repeat(3, 96px) 92px;
   min-inline-size: 560px;
-  border-collapse: separate;
-  border-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
-thead th {
-  position: sticky;
-  inset-block-start: 0;
-  z-index: 1;
-  padding: 11px 14px;
+.maple-grid__head,
+.maple-grid__body {
+  scrollbar-gutter: stable;
+}
+
+.maple-grid__head {
+  overflow: hidden;
   border-bottom: 1px solid var(--ui-border);
+}
+
+.maple-grid__body {
+  overflow-y: auto;
+  max-block-size: min(32rem, 60vh);
+}
+
+.maple-grid__body:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: -2px;
+}
+
+.maple-grid__row {
+  display: grid;
+  grid-template-columns: var(--maple-cols);
+  align-items: center;
+}
+
+.maple-grid__row > * {
+  min-width: 0;
+  padding: 11px 14px;
+  text-align: end;
+}
+
+.maple-grid__head .maple-grid__row > * {
   color: var(--ui-muted);
-  background: var(--ui-surface);
   font-size: 12px;
   font-weight: var(--fw-600);
-  text-align: end;
   white-space: nowrap;
 }
 
-tbody th,
-tbody td {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--ui-border);
-  vertical-align: middle;
-  text-align: end;
+.maple-grid__body .maple-grid__row + .maple-grid__row {
+  border-top: 1px solid var(--ui-border);
 }
 
-tbody tr:last-child > :is(th, td) {
-  border-bottom: 0;
-}
-
-thead th:nth-child(2),
-tbody th {
+.maple-grid__row > .is-start {
   text-align: start;
 }
 
-.is-center {
-  width: 48px;
+.maple-grid__row > .is-center {
+  padding-inline: 4px;
   text-align: center;
 }
 
-/* 数值列定宽靠右，铺主列吃掉剩余宽度，避免宽屏下价格和名字隔得太远。 */
-@media (min-width: 900px) {
-  thead th:nth-child(n + 3) {
-    width: 120px;
-  }
+.maple-grid__span {
+  grid-column: 3 / -1;
 }
 
-tbody tr.is-featured {
+.maple-grid__body .maple-grid__row.is-featured {
   background: color-mix(in srgb, var(--ui-primary-soft) 55%, transparent);
 }
 
-tbody tr.is-self {
+.maple-grid__body .maple-grid__row.is-self {
   background: color-mix(in srgb, var(--ui-surface-soft) 65%, transparent);
+}
+
+@media (min-width: 900px) {
+  .maple-grid {
+    --maple-cols: 56px minmax(160px, 1fr) repeat(3, 120px) 108px;
+  }
 }
 
 .maple-rank {
@@ -817,8 +825,7 @@ tbody tr.is-self {
 }
 
 .maple-diff.is-down {
-  color: var(--ui-muted);
-  font-weight: var(--fw-400);
+  color: var(--ui-danger);
 }
 
 .maple-quota {
@@ -854,11 +861,8 @@ tbody tr.is-self {
   background: var(--ui-danger-soft);
 }
 
-.maple-compare__empty-row {
-  text-align: end;
-}
-
 .maple-compare__empty-filter {
+  margin: 0;
   padding: 28px 16px;
   color: var(--ui-muted);
   font-size: 13px;
@@ -967,9 +971,7 @@ tbody tr.is-self {
     padding: 14px 16px;
   }
 
-  thead th,
-  tbody th,
-  tbody td {
+  .maple-grid__row > * {
     padding: 10px;
   }
 

@@ -165,6 +165,16 @@ const exchangeMax = computed(() => {
   return Math.max(0, Math.min(offer.remaining ?? 9999, Math.floor(wallet / offer.price)))
 })
 
+/** 活动/兑换期内才允许下单；结束后所有商品都不可兑。 */
+const canExchangeNow = computed(() => state.value?.phase === 'active' || state.value?.phase === 'settlement')
+
+const exchangeShortfall = computed(() => {
+  const offer = exchangeOffer.value
+  if (!offer)
+    return 0
+  return Math.max(0, offer.price * (exchangeCount.value || 0) - (state.value?.coinBalance ?? 0))
+})
+
 const exchangeInsufficient = computed(() => {
   const offer = exchangeOffer.value
   const wallet = state.value?.coinBalance ?? 0
@@ -188,15 +198,13 @@ function limitLabel(limitType: number) {
   return '限购'
 }
 
-/** 不能兑换时返回原因；可兑换返回 null。余额不足优先于服务端的不可兑换标记，方便看出还差多少。 */
-function goodsBlock(goods: MarketGoods): { text: string, tone: 'off' | 'short' } | null {
+/** 已兑完或活动阶段不允许时返回原因。福气币不足仍可打开兑换弹窗，在弹窗里提示还差多少。 */
+function goodsBlock(goods: MarketGoods): string | null {
   if (goods.remaining === 0)
-    return { text: goods.limitType === 1 ? '今日已兑完' : '已兑完', tone: 'off' }
-  const balance = state.value?.coinBalance ?? 0
-  if (goods.price > balance)
-    return { text: `还差 ${formatter.format(goods.price - balance)}`, tone: 'short' }
-  if (!goods.exchangeable)
-    return { text: '暂不可兑', tone: 'off' }
+    return goods.limitType === 1 ? '今日已兑完' : '已兑完'
+  const affordable = goods.price <= (state.value?.coinBalance ?? 0)
+  if (!goods.exchangeable && (affordable || !canExchangeNow.value))
+    return '暂不可兑'
   return null
 }
 
@@ -619,7 +627,7 @@ onUnmounted(() => {
                 >
                   兑换
                 </NButton>
-                <span v-else class="maple-goods-card__state" :class="`is-${goodsBlock(goods)!.tone}`">{{ goodsBlock(goods)!.text }}</span>
+                <span v-else class="maple-goods-card__state">{{ goodsBlock(goods) }}</span>
               </div>
             </li>
           </ul>
@@ -718,7 +726,7 @@ onUnmounted(() => {
             </ul>
           </section>
           <p v-if="exchangeInsufficient" class="maple-confirm__error" role="alert">
-            <span class="i-carbon-warning-alt" aria-hidden="true" />福气币数量不足
+            <span class="i-carbon-warning-alt" aria-hidden="true" />福气币不足，还差 {{ formatter.format(exchangeShortfall) }}
           </p>
         </div>
         <template #footer>
@@ -1465,11 +1473,6 @@ onUnmounted(() => {
   color: var(--ui-subtle);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-}
-
-.maple-goods-card__state.is-short {
-  color: var(--ui-warning);
-  font-weight: var(--fw-600);
 }
 
 /* —— 活动说明 —— */
