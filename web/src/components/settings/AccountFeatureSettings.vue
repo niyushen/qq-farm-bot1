@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { FertilizerTimeUnit } from '@/utils/fertilizer-time'
-import { computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { computed, ref, watch } from 'vue'
+import api, { getApiErrorMessage } from '@/api'
 import MilkTeaActivityPanel from '@/components/settings/MilkTeaActivityPanel.vue'
+import RanchCubPriority from '@/components/settings/RanchCubPriority.vue'
 import StrategySettingsPanel from '@/components/settings/StrategySettingsPanel.vue'
 import StrategyTimingPanel from '@/components/settings/StrategyTimingPanel.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -10,14 +13,15 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import HourInput from '@/components/ui/HourInput.vue'
 import { MILK_TEA_ACTIVITY_WINDOW, MILK_TEA_AUTOMATION_OPTIONS, SHARE_REWARD_ACTIVITY_WINDOW } from '@/constants/activity-windows'
+import { useStatusStore } from '@/stores/status'
 import { FERTILIZER_TIME_UNITS, fertilizerTimeSeconds, fertilizerTimeValue } from '@/utils/fertilizer-time'
-import { STEAL_FREQUENCY_OPTIONS, getStealFrequencyOption } from '@/utils/steal-frequency'
 import {
   RANCH_AUTOMATION_LIMITS,
   RANCH_AUTOMATION_SWITCHES,
   RANCH_BAG_FALLBACK_OPTIONS,
   RANCH_STRATEGY_OPTIONS,
 } from '@/utils/ranch'
+import { getStealFrequencyOption, STEAL_FREQUENCY_OPTIONS } from '@/utils/steal-frequency'
 
 type ModuleKey
   = | 'planting'
@@ -54,6 +58,43 @@ const emit = defineEmits<{
 
 const strategy = defineModel<any>('strategy', { required: true })
 const automation = defineModel<any>('automation', { required: true })
+const { currentAccountConnected } = storeToRefs(useStatusStore())
+
+// 牧场指定动物选项：供「养殖与收获」模块的窝/棚指定动物下拉使用。
+// 与隐藏的旧策略页同源，使牧场策略统一从「设置 - 牧场设置」进入。
+const ranchAnimalOptions = ref<Array<{ value: number, label: string, kind: string }>>([])
+const animalOptionsLoading = ref(false)
+const animalOptionsError = ref('')
+const needsAnimalOptions = computed(() => {
+  const auto = automation.value?.automation
+  return auto?.ranch_strategy === 'preferred'
+    || (auto?.ranch_strategy === 'bag_priority' && auto.ranch_bag_fallback === 'preferred')
+})
+
+async function loadAnimalOptions() {
+  if (animalOptionsLoading.value)
+    return
+  animalOptionsLoading.value = true
+  animalOptionsError.value = ''
+  try {
+    const { data } = await api.get('/api/ranch/automation-options', { skipErrorToast: true } as any)
+    if (!data?.ok || !Array.isArray(data.data) || !data.data.length)
+      throw new Error(getApiErrorMessage(data, '牧场动物选项读取失败'))
+    ranchAnimalOptions.value = data.data
+  }
+  catch (cause) {
+    animalOptionsError.value = getApiErrorMessage(cause, '牧场动物选项读取失败')
+  }
+  finally {
+    animalOptionsLoading.value = false
+  }
+}
+
+watch(() => props.currentAccountId, (accountId) => {
+  if (accountId)
+    void loadAnimalOptions()
+}, { immediate: true })
+
 const activeModule = ref<ModuleKey | null>(null)
 const mutationTestActive = ref(false)
 const editSnapshot = ref<{ strategy: any, automation: any } | null>(null)
@@ -86,7 +127,7 @@ const moduleInfo: Record<ModuleKey, { title: string, description: string, icon: 
   daily: { title: '日常', description: '农场任务、邮件奖励、宠物喂食与图鉴', icon: 'i-carbon-task', image: '/game-config/module_icons/activity-task.png', tone: 'violet' },
   ranch_husbandry: { title: '养殖与收获', description: '入栏、催产、收获、清理与出售', icon: 'i-carbon-sprout', image: '/game-config/module_icons/planting.png', tone: 'emerald' },
   ranch_feed: { title: '饲料与设施', description: '牧草、罐头桶与设施升级', icon: 'i-carbon-wheat', image: '/game-config/module_icons/fertilizer.png', tone: 'amber' },
-  ranch_friends: { title: '牧场好友', description: '照料、清理好友栏舍与放蚊子', icon: 'i-carbon-user-multiple', image: '/game-config/module_icons/friends-friendship.png', tone: 'sky' },
+  ranch_friends: { title: '牧场好友', description: '帮忙生产、照料、清理好友栏舍与放蚊子', icon: 'i-carbon-user-multiple', image: '/game-config/module_icons/friends-friendship.png', tone: 'sky' },
   ranch_steal: { title: '牧场偷取', description: '进入好友牧场偷取货架产物', icon: 'i-carbon-run', image: '/game-config/module_icons/steal.png', tone: 'lime' },
   ranch_merchant: { title: '兑换集市', description: '用便便、松果兑换有机化肥', icon: 'i-carbon-store', image: '/game-config/module_icons/merchant.png', tone: 'orange' },
   ranch_daily: { title: '日常', description: '牧场任务、订单、每日福利与奖励', icon: 'i-carbon-task-complete', image: '/game-config/module_icons/activity-task.png', tone: 'teal' },
@@ -100,7 +141,7 @@ const moduleInfo: Record<ModuleKey, { title: string, description: string, icon: 
 const RANCH_MODULE_SWITCHES: Record<string, string[]> = {
   ranch_husbandry: ['ranch_harvest', 'ranch_produce', 'ranch_buy', 'ranch_activate_shed', 'ranch_sell', 'ranch_clean'],
   ranch_feed: ['ranch_grass', 'ranch_grass_buy', 'ranch_fill_cans', 'ranch_feed_normal', 'ranch_feed_organic', 'ranch_upgrade'],
-  ranch_friends: ['ranch_stroke', 'ranch_friend_clean', 'ranch_friend_mosquito'],
+  ranch_friends: ['ranch_friend_produce', 'ranch_stroke', 'ranch_friend_clean', 'ranch_friend_mosquito'],
   ranch_steal: ['ranch_friend_steal'],
   ranch_merchant: ['ranch_market_organic', 'ranch_market_organic_poop', 'ranch_market_organic_pinecone'],
   ranch_daily: ['ranch_task', 'ranch_share', 'ranch_illustrated', 'ranch_daily_benefit'],
@@ -842,10 +883,34 @@ function cancel() {
                   />
                   <BaseSelect v-model="automation.automation.ranch_strategy" label="养殖策略" :options="RANCH_STRATEGY_OPTIONS" />
                   <BaseSelect v-model="automation.automation.ranch_bag_fallback" label="缺货回退" :options="RANCH_BAG_FALLBACK_OPTIONS" />
+                  <template v-if="needsAnimalOptions">
+                    <p v-if="animalOptionsLoading" class="col-span-full text-sm text-gray-500 dark:text-gray-400" role="status">
+                      正在读取牧场动物选项…
+                    </p>
+                    <div v-else-if="animalOptionsError" class="col-span-full flex flex-wrap items-center gap-2">
+                      <p class="text-sm text-red-600 dark:text-red-400" role="alert">
+                        {{ animalOptionsError }}
+                      </p>
+                      <BaseButton variant="secondary" size="sm" @click="loadAnimalOptions">
+                        重试
+                      </BaseButton>
+                    </div>
+                    <template v-else>
+                      <BaseSelect v-model="automation.automation.ranch_coop_animal" label="窝 · 指定动物" :options="[{ value: 0, label: '不购买' }, ...ranchAnimalOptions.filter(animal => animal.kind === '窝')]" />
+                      <BaseSelect v-model="automation.automation.ranch_shed_animal" label="棚 · 指定动物" :options="[{ value: 0, label: '不购买' }, ...ranchAnimalOptions.filter(animal => animal.kind === '棚')]" />
+                    </template>
+                  </template>
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   牧场按上面的间隔巡查；除「牧场任务」「每日分享」外，其余动作默认关闭，开启后才会自动执行。
                 </p>
+                <RanchCubPriority
+                  v-if="activeModule === 'ranch_husbandry' && automation.automation.ranch_strategy === 'bag_priority'"
+                  v-model="automation.automation"
+                  :account-id="String(currentAccountId || '')"
+                  :connected="currentAccountConnected"
+                  class="mt-3"
+                />
               </section>
 
               <section class="border border-gray-100 rounded-lg bg-gray-50/70 p-4 space-y-3 dark:border-gray-700 dark:bg-gray-900/25">
