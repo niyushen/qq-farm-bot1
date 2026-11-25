@@ -43,9 +43,9 @@ interface RuntimeConfig extends SystemConfig {
 // ============ 设备预设 ============
 
 // clientVersion 由 CONFIG.clientVersion 动态获取，不写死在预设中
-// Verified in the official QQ PlayerLogin and Heartbeat from the 2026-11-17 capture.
-const DEFAULT_CLIENT_VERSION = '1.17.0.4_20261117';
-const DEFAULT_CLIENT_VERSION_UPDATED_AT = 1794888024122;
+// Verified in the official QQ PlayerLogin and Heartbeat from the 2026-11-25 capture.
+const DEFAULT_CLIENT_VERSION = '1.17.1.10_20261117';
+const DEFAULT_CLIENT_VERSION_UPDATED_AT = 1795572430356;
 // Independently verified from the official WeChat package 82 configuration on 2026-11-17.
 const DEFAULT_WX_CLIENT_VERSION = '1.17.0.4_20261117';
 const DEFAULT_WX_CLIENT_VERSION_UPDATED_AT = 1794891946317;
